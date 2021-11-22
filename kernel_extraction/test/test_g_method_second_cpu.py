@@ -23,7 +23,8 @@ def main():
     kernel_i_ref = np.zeros(trunc)
     _calc_G_method(kernel_i_ref, xdu_corr, vv_corr, dt, trunc)
     kernel_i_test = kernel_extraction.g_method_second_cpu(vv_corr, xdu_corr, dt, trunc)
-    np.testing.assert_allclose(kernel_i_ref, kernel_i_test)
+    # Saved the data in sinlges, reduce rtol
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
     print("Test successful!")
 
 

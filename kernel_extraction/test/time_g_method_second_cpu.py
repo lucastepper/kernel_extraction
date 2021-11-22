@@ -13,7 +13,7 @@ def main():
 
     truncs = []
     times = []
-    for trunc in [1, 2, 3, 4, 5, 5.2, 5.3, 5.5, np.log10(trunc_max)]:
+    for trunc in [1, 2, 3, 4, 5]:
         trunc = int(10 ** trunc)
         t1 = time()
         kernel_i_test = kernel_extraction.g_method_second_cpu(
