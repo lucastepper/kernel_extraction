@@ -1,4 +1,5 @@
 from time import time
+import os
 import numpy as np
 import kernel_extraction
 import matplotlib.pyplot as plt
@@ -29,7 +30,10 @@ def main():
     # dont test last element, as it comes from different numerical gradient
     kernel_test = np.gradient(kernel_i_test, dt)[ : -1]
     np.testing.assert_allclose(kernel_test, kernel_ref[ : len(kernel_test)], rtol=5e-5, atol=10)
-
+    
+    # make figure for kernel comparison and timings
+    if not os.path.isdir("test/timings"):
+        os.mkdir("timings")
     plt.plot(truncs, times, marker="x")
     plt.xlabel("trunc")
     plt.ylabel("time [s]")
@@ -41,7 +45,7 @@ def main():
     plt.plot(
         np.arange(trunc)[:trunc] * dt, np.gradient(kernel_i_test, dt), label="test"
     )
-    plt.plot(np.arange(trunc) * dt, kernel_ref[:trunc], label="ref", alpha=0.6)
+    plt.plot(np.arange(trunc) * dt, kernel_ref[:trunc], label="ref", linestyle="--")
     plt.semilogx()
     plt.legend()
     plt.savefig("test/kernel_compare.pdf")

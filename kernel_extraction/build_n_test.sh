@@ -1,6 +1,5 @@
 #! /usr/bin/env zsh
 
-echo $(which python)
 
 package_name="kernel_extraction"
 test_script="test_g_method_second_cpu.py"
