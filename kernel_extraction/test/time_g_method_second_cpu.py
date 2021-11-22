@@ -24,12 +24,18 @@ def main():
         print(f"{trunc=}, {time_run=} s")
         truncs.append(trunc)
 
+    # saved ref data in singles, reduce rtol, set atol so we do not get an error
+    # from a slight shift in the kernels nodes.
+    # dont test last element, as it comes from different numerical gradient
+    kernel_test = np.gradient(kernel_i_test, dt)[ : -1]
+    np.testing.assert_allclose(kernel_test, kernel_ref[ : len(kernel_test)], rtol=5e-5, atol=10)
+
     plt.plot(truncs, times, marker="x")
     plt.xlabel("trunc")
     plt.ylabel("time [s]")
     for i in range(1, 3):
         plt.annotate(str(round(times[-i], 1)), (truncs[-i], times[-i]))
-    plt.savefig("timings.pdf")
+    plt.savefig("test/timings/timings.pdf")
     plt.clf()
 
     plt.plot(
@@ -38,7 +44,7 @@ def main():
     plt.plot(np.arange(trunc) * dt, kernel_ref[:trunc], label="ref", alpha=0.6)
     plt.semilogx()
     plt.legend()
-    plt.savefig("kernel_compare.pdf")
+    plt.savefig("test/kernel_compare.pdf")
 
 
 if __name__ == "__main__":
