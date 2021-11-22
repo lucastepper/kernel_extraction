@@ -11,6 +11,8 @@ crate-type = ["cdylib"]
 [dependencies]
 numpy = "0.14"
 ndarray = "0.15.2"
+packed_simd = { version = "0.3.6", package = "packed_simd_2" }
+rayon = "1.5"
 
 [dependencies.pyo3]
 version = "0.14"
