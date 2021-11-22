@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 
 def main():
     dt = 0.001
-    trunc_max = int(1e6)
+    trunc_max = int(1e5)
     kernel_ref = np.load("test/kernel_ref.npy")
     xdu_corr_ref = np.load("test/xdu_corr_ref.npy")
     vv_corr_ref = np.load("test/vv_corr_ref.npy")
 
     truncs = []
     times = []
-    for trunc in [1, 2, 3, 4, 5]:
+    for trunc in [1, 2, 3, 4, np.log10(trunc_max)]:
         trunc = int(10 ** trunc)
         t1 = time()
         kernel_i_test = kernel_extraction.g_method_second_cpu(
@@ -39,7 +39,6 @@ def main():
     plt.semilogx()
     plt.legend()
     plt.savefig("kernel_compare.pdf")
-    plt.show()
 
 
 if __name__ == "__main__":
