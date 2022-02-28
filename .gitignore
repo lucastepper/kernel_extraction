@@ -1,2 +1,3 @@
-kernel_extraction/target
-kernel_extraction.so
+target
+kernel_extraction/kernel_extraction.cpython*
+*pycache*
