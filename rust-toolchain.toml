@@ -1,5 +1,5 @@
 [toolchain]
 channel = "nightly"
 target-cpu = "native"
-opt-level = 1
+opt-level = 3
 debuginfo = 0
