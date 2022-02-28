@@ -15,11 +15,11 @@ def _calc_G_method(kernel_i, xu_cf, v_acf, dt, trunc, verbose=False):
             print("progress: ", round(i / trunc * 100, 3), "%")
 
 
-def main():
+def test_g_method():
     dt = 0.01
     trunc = 10
-    vv_corr = np.load("test/vv_corr_ref.npy")[:10]
-    xdu_corr = np.load("test/xdu_corr_ref.npy")[:10]
+    vv_corr = np.load("vv_corr_ref.npy")[:10]
+    xdu_corr = np.load("xdu_corr_ref.npy")[:10]
     kernel_i_ref = np.zeros(trunc)
     _calc_G_method(kernel_i_ref, xdu_corr, vv_corr, dt, trunc)
     kernel_i_test = kernel_extraction.g_method_second_cpu(vv_corr, xdu_corr, dt, trunc)
@@ -29,4 +29,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    test_g_method()
