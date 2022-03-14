@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 def main():
     dt = 0.001
-    trunc_max = int(3e6)
+    trunc_max = int(1e6)
     # set up data for benchmarks
     kernel_ref = np.load("kernel_ref.npy")
     xdu_corr_ref = np.load("xdu_corr_ref.npy")
@@ -16,7 +16,7 @@ def main():
     times = []
     truncs_to_run = [1, 2, 3, 4, 5]
     if os.environ.get("RUNLONG") == "true":
-        truncs_to_run.extend([np.log10(1e6), np.log10(trunc_max)])
+        truncs_to_run.append(trunc_max)
     # run benchmarks
     for trunc in truncs_to_run:
         trunc = int(10 ** trunc)
