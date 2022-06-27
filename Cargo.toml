@@ -10,9 +10,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 numpy = "0.16.2"
-ndarray = "0.15.4"
+ndarray = { version = "0.15.4", features = ["approx"] }
 packed_simd = { version = "0.3.8", package = "packed_simd_2" }
 rayon = "1.5.3"
+rustacuda = "0.1"
+rustacuda_core = "0.1"
+rustacuda_derive = "0.1"
+cublas = "0.2.0"
+cublas-sys = "0.1.0"
 
 [dependencies.pyo3]
 version = "0.16.5"

@@ -60,7 +60,12 @@ fn dot_prod_simd(a: &[f64], b: &[f64]) -> f64 {
     dot_prod_simd
 }
 
-pub fn _g_method_second_cpu(vv_corr_rev: &[f64], xdu_corr: &[f64], dt: f64, trunc: usize) -> Vec<f64> {
+pub fn _g_method_second_cpu(
+    vv_corr_rev: &[f64],
+    xdu_corr: &[f64],
+    dt: f64,
+    trunc: usize,
+) -> Vec<f64> {
     let len = vv_corr_rev.len();
     let mut convolution: f64;
     let mut kernel = vec![0.; trunc];
