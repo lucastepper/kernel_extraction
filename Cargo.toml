@@ -9,11 +9,11 @@ name = "kernel_extraction"
 crate-type = ["cdylib"]
 
 [dependencies]
-numpy = "0.14"
-ndarray = "0.15.2"
-packed_simd = { version = "0.3.6", package = "packed_simd_2" }
-rayon = "1.5"
+numpy = "0.16.2"
+ndarray = "0.15.4"
+packed_simd = { version = "0.3.8", package = "packed_simd_2" }
+rayon = "1.5.3"
 
 [dependencies.pyo3]
-version = "0.14"
+version = "0.16.5"
 features = ["extension-module"]
