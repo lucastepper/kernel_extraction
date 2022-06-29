@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::kernel_cpu;
 use cublas;
 use cublas_sys;
@@ -138,11 +139,9 @@ mod tests {
             KernelCuda::new(vv_corr_rev.view(), xdu_corr.view(), dt, trunc).unwrap();
         kernel_cuda.compute();
         let kernel_test = kernel_cuda.get_kernel();
+        println!("Time: {:?}", time);
+        println!("Cvv: {:?}", vv_corr);
+        println!("xdU_corr {:?}", xdu_corr);
         assert!(&kernel_ref.abs_diff_eq(&kernel_test, EPS));
-        println!("{:?}", time);
-        println!("{:?}", vv_corr);
-        println!("{:?}", xdu_corr);
-        todo!();
-        // }
     }
 }
