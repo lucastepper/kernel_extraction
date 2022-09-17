@@ -61,8 +61,10 @@ impl KernelCuda {
         let stream = &self.stream;
         for i in 1..self.kernel.len() {
             // compute dot via cublas
+            let dot_func = self.get_dot_func();
+            let test = dot_func(1.);
             unsafe {
-                cublas_sys::cublasDdot_v2(
+                let status = cublas_sys::cublasDdot_v2(
                     *self.cublas_context.id_c(),
                     i as i32,
                     self.kernel.as_device_ptr().as_raw(),
@@ -97,6 +99,9 @@ impl KernelCuda {
         let mut kernel_host = vec![0.; self.kernel.len()];
         self.kernel.copy_to(&mut kernel_host).unwrap();
         nd::Array1::from_vec(kernel_host)
+    }
+    unsafe fn get_dot_func(&self) -> Box<dyn unsafe extern "C" Fn(cublas_sys::cublasHandle_t, i32, *const f64, i32, *const f64, i32, *mut f64) -> cublas_sys::Enum_Unnamed1> {
+        Box::new(cublas_sys::cublasDdot_v2)
     }
 }
 
