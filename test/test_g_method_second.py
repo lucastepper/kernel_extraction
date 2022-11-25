@@ -18,14 +18,15 @@ def _calc_G_method(vv_corr, xdu_corr, dt, trunc):
     return kernel_i
 
 
-def test_g_method_cpu():
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_g_method_cpu(device):
     """Test extraction method versus reference implementation."""
     test_data = utils.load_test_data()
     kernel_i_ref = _calc_G_method(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc
     )
-    kernel_i_test = kernel_extraction.g_method_second_cpu(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc
+    kernel_i_test = kernel_extraction.g_method_xdu_nomass(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc, device
     )
     # Saved the data in sinlges, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
@@ -37,8 +38,8 @@ def test_sim_data():
     Compare to the analytical reference kernel of the Markovian embedding.
     """
     test_data = utils.simulate_test_data()
-    kernel_i = kernel_extraction.g_method_second_cpu(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc
+    kernel_i = kernel_extraction.g_method_xdu_nomass(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc, "cpu"
     )
     # test
     time = np.arange(test_data.trunc) * test_data.dt

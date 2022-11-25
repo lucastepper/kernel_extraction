@@ -1,43 +1,100 @@
 #[macro_use]
 extern crate rustacuda;
-mod kernel_cpu;
 mod kernel_cuda;
-use ndarray as nd;
-use numpy as np;
-use numpy::IntoPyArray;
+use ndarray::{s, Array1, ArrayView1};
+use numpy::{IntoPyArray, PyArray1};
+use packed_simd::f64x4;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rayon::prelude::*;
+
+enum Device {
+    Cpu,
+    Cuda,
+}
+impl Device {
+    fn from_str(s: &str) -> PyResult<Self> {
+        match s.to_lowercase().as_str() {
+            "cpu" => Ok(Device::Cpu),
+            "cuda" => Ok(Device::Cuda),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Device: {} not supported",
+                    s
+                )))
+            }
+        }
+    }
+}
+
+/// Dot product of two vectors
+pub fn dot_prod_par_simd(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
+    let a = a.as_slice().unwrap();
+    let b = b.as_slice().unwrap();
+    // code for avx_256 instructions, should probs require avx2
+    let max_len = a.len() / 4 * 4;
+    let remainder = a.len() % 4;
+    // iterate trough elements at a stride of 4
+    let mut dot_prod_simd = a[0..max_len]
+        .par_chunks_exact(4)
+        .map(f64x4::from_slice_unaligned)
+        .zip(
+            b[0..max_len]
+                .par_chunks_exact(4)
+                .map(f64x4::from_slice_unaligned),
+        )
+        .map(|(a, b)| a * b)
+        .sum::<f64x4>()
+        .sum();
+    // add the last elems, up to three, if len(a) / 4 != 0
+    for i in max_len..(max_len + remainder) {
+        dot_prod_simd += a[i] * b[i];
+    }
+    dot_prod_simd
+}
+
+#[pyfunction]
+#[pyo3(text_signature = "(vv_corr, xdu_corr, dt, trunc, device)")]
+fn g_method_xdu_nomass<'py>(
+    py: Python<'py>,
+    vv_corr: &'py PyArray1<f64>,
+    xdu_corr: &'py PyArray1<f64>,
+    dt: f64,
+    trunc: usize,
+    device: String,
+) -> PyResult<&'py PyArray1<f64>> {
+    // flipping vv_corr once and compution convolution as dot prod is faster
+    let vv_corr = unsafe { vv_corr.as_array() };
+    // let vv_corr_rev: Vec<f64> = vv_corr.iter().rev().map(|x| *x).collect();
+    let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
+    let xdu_corr = unsafe { xdu_corr.as_array() };
+    // do actual computation
+    let len = vv_corr_rev.shape()[0];
+    let mut convolution: f64;
+    // let mut kernel = vec![0.; trunc];
+    let kernel = match Device::from_str(&device)? {
+        Device::Cpu => {
+            let mut kernel = Array1::zeros(trunc);
+            for i in 1..trunc {
+                convolution = dot_prod_par_simd(
+                    kernel.slice(s![1..i]),
+                    vv_corr_rev.slice(s![(len - i)..(len - 1)]),
+                );
+                kernel[i] = 2. / vv_corr_rev[len - 1]
+                    * ((xdu_corr[i]
+                        - vv_corr_rev[len - 1 - i] * xdu_corr[0] / vv_corr_rev[len - 1])
+                        / dt
+                        - convolution);
+            }
+            kernel
+        }
+        Device::Cuda => kernel_cuda::g_method_xdu_nomass(vv_corr_rev.view(), xdu_corr, dt, trunc)?,
+    };
+    Ok(kernel.into_pyarray(py))
+}
 
 #[pymodule]
 fn kernel_extraction(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    #[pyfn(m)]
-    #[pyo3(name = "g_method_second_cpu")]
-    fn g_method_second_cpu<'py>(
-        py: Python<'py>,
-        vv_corr: Vec<f64>,
-        xdu_corr: Vec<f64>,
-        dt: f64,
-        trunc: usize,
-    ) -> &'py np::PyArray1<f64> {
-        // flipping vv_corr once and compution convolution as dot prod is faster
-        let vv_corr_rev: Vec<f64> = vv_corr.iter().rev().map(|x| *x).collect();
-        kernel_cpu::_g_method_second_cpu(&vv_corr_rev, &xdu_corr, dt, trunc).into_pyarray(py)
-    }
-
-    #[pyfn(m)]
-    #[pyo3(name = "g_method_second_cuda")]
-    fn g_method_second_cuda<'py>(
-        py: Python<'py>,
-        vv_corr: &'py np::PyArray1<f64>,
-        xdu_corr: &'py np::PyArray1<f64>,
-        dt: f64,
-        trunc: usize,
-    ) -> &'py np::PyArray1<f64> {
-        // flipping vv_corr once and compution convolution as dot prod is faster
-        let vv_corr = unsafe { vv_corr.as_array() };
-        let vv_corr_rev: Vec<f64> = vv_corr.iter().rev().map(|x| *x).collect();
-        let vv_corr_rev = nd::Array1::from_vec(vv_corr_rev);
-        let xdu_corr = unsafe { xdu_corr.as_array() };
-        kernel_cuda::compute_kernel(vv_corr_rev.view(), xdu_corr, dt, trunc).into_pyarray(py)
-    }
+    m.add_wrapped(wrap_pyfunction!(g_method_xdu_nomass))?;
     Ok(())
 }

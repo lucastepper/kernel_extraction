@@ -1,8 +1,9 @@
 #[cfg(test)]
-use super::kernel_cpu;
 use cublas;
 use cublas_sys;
 use ndarray as nd;
+use pyo3::exceptions::PyValueError;
+use pyo3::PyResult;
 use rustacuda::memory::DeviceBox;
 use rustacuda::prelude::*;
 use std::error::Error;
@@ -10,8 +11,8 @@ use std::ffi::CString;
 
 struct KernelCuda {
     kernel: DeviceBuffer<f64>,
-    vv_corr_rev: DeviceBuffer<f64>,
-    xdu_corr: DeviceBuffer<f64>,
+    vv_corr_rev: Option<DeviceBuffer<f64>>,
+    xdu_corr: Option<DeviceBuffer<f64>>,
     dt: f64,
     dot: DeviceBox<f64>,
     // cuda stuff the order matters, probably because it translates
@@ -22,9 +23,21 @@ struct KernelCuda {
     _cuda_context: Context,
 }
 impl KernelCuda {
+    fn arr_to_gpu(
+        arr: Option<nd::ArrayView1<f64>>,
+    ) -> Result<Option<DeviceBuffer<f64>>, Box<dyn Error>> {
+        match arr {
+            None => Ok(None),
+            Some(arr) => Ok(Some(DeviceBuffer::from_slice(
+                &arr.as_slice()
+                    .expect("empty slice while copying data to device"),
+            )?)),
+        }
+    }
+
     fn new(
-        vv_corr_rev: nd::ArrayView1<f64>,
-        xdu_corr: nd::ArrayView1<f64>,
+        vv_corr_rev: Option<nd::ArrayView1<f64>>,
+        xdu_corr: Option<nd::ArrayView1<f64>>,
         dt: f64,
         trunc: usize,
     ) -> Result<KernelCuda, Box<dyn Error>> {
@@ -45,8 +58,8 @@ impl KernelCuda {
         // init obj
         Ok(KernelCuda {
             kernel: DeviceBuffer::from_slice(&vec![0.; trunc])?,
-            vv_corr_rev: DeviceBuffer::from_slice(&vv_corr_rev.as_slice().unwrap())?,
-            xdu_corr: DeviceBuffer::from_slice(&xdu_corr.as_slice().unwrap())?,
+            vv_corr_rev: Self::arr_to_gpu(vv_corr_rev)?,
+            xdu_corr: Self::arr_to_gpu(xdu_corr)?,
             dot: DeviceBox::new(&0.0)?,
             dt,
             module,
@@ -55,8 +68,18 @@ impl KernelCuda {
             _cuda_context,
         })
     }
-    fn compute(&mut self) {
-        let len = self.vv_corr_rev.len();
+
+    fn g_method_xdu_nomass(&mut self) -> PyResult<()> {
+        // check that the kernels are present
+        let vv_corr_rev = match self.vv_corr_rev {
+            Some(ref mut vv_corr_rev) => vv_corr_rev,
+            None => return Err(PyValueError::new_err("vv_corr_rev not present")),
+        };
+        let xdu_corr = match self.xdu_corr {
+            Some(ref mut xdu_corr) => xdu_corr,
+            None => return Err(PyValueError::new_err("xdu_corr not present")),
+        };
+        let len = vv_corr_rev.len();
         let module = &self.module;
         let stream = &self.stream;
         for i in 1..self.kernel.len() {
@@ -67,7 +90,7 @@ impl KernelCuda {
                     i as i32,
                     self.kernel.as_device_ptr().as_raw(),
                     1i32,
-                    self.vv_corr_rev
+                    vv_corr_rev
                         .as_device_ptr()
                         .as_raw()
                         .offset((len - i - 1) as isize),
@@ -81,8 +104,8 @@ impl KernelCuda {
                 launch!(module.kernel_step_double<<<1, 1, 0, stream>>>(
                     self.dot.as_device_ptr(),
                     self.kernel.as_device_ptr(),
-                    self.vv_corr_rev.as_device_ptr(),
-                    self.xdu_corr.as_device_ptr(),
+                    vv_corr_rev.as_device_ptr(),
+                    xdu_corr.as_device_ptr(),
                     self.dt,
                     i,
                     len
@@ -92,7 +115,9 @@ impl KernelCuda {
                 stream.synchronize().unwrap();
             }
         }
+        Ok(())
     }
+
     fn get_kernel(&self) -> nd::Array1<f64> {
         let mut kernel_host = vec![0.; self.kernel.len()];
         self.kernel.copy_to(&mut kernel_host).unwrap();
@@ -100,48 +125,13 @@ impl KernelCuda {
     }
 }
 
-pub fn compute_kernel(
+pub fn g_method_xdu_nomass(
     vv_corr: nd::ArrayView1<f64>,
     xdu_corr: nd::ArrayView1<f64>,
     dt: f64,
     trunc: usize,
-) -> nd::Array1<f64> {
-    let mut kernel_cuda = KernelCuda::new(vv_corr, xdu_corr, dt, trunc).unwrap();
-    kernel_cuda.compute();
-    kernel_cuda.get_kernel()
-}
-
-#[cfg(test)]
-mod tests {
-    const EPS: f64 = 1e-6;
-    use super::*;
-
-    #[test]
-    fn test_kernel() {
-        // init test data
-        let dt = 0.01;
-        let trunc = (1. / dt) as usize;
-        let time = nd::Array1::range(0., 1., dt);
-        let vv_corr = time.mapv(|t| f64::cos(100. * t) * f64::exp(-t / 0.2));
-        let vv_corr_rev: Vec<f64> = vv_corr.iter().rev().map(|x| *x).collect();
-        let vv_corr_rev = nd::Array1::from_vec(vv_corr_rev);
-        let xdu_corr = time.mapv(|t| 2.494 * f64::exp(-t));
-        // data ref
-        let kernel_ref = kernel_cpu::_g_method_second_cpu(
-            &vv_corr_rev.as_slice().unwrap(),
-            &xdu_corr.as_slice().unwrap(),
-            dt,
-            trunc,
-        );
-        let kernel_ref = nd::Array1::from_vec(kernel_ref);
-        // compute test data
-        let mut kernel_cuda =
-            KernelCuda::new(vv_corr_rev.view(), xdu_corr.view(), dt, trunc).unwrap();
-        kernel_cuda.compute();
-        let kernel_test = kernel_cuda.get_kernel();
-        println!("Time: {:?}", time);
-        println!("Cvv: {:?}", vv_corr);
-        println!("xdU_corr {:?}", xdu_corr);
-        assert!(&kernel_ref.abs_diff_eq(&kernel_test, EPS));
-    }
+) -> PyResult<nd::Array1<f64>> {
+    let mut kernel_cuda = KernelCuda::new(Some(vv_corr), Some(xdu_corr), dt, trunc).unwrap();
+    kernel_cuda.g_method_xdu_nomass()?;
+    Ok(kernel_cuda.get_kernel())
 }

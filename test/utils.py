@@ -44,7 +44,7 @@ class TestData:
             load_dir = load_dir / "test"
         load_dir = load_dir / "data"
         corrs_to_load = ["vv_corr", "xdu_corr"]
-        corrs = {corr: np.load(load_dir / f"{corr}.npy") for corr in corrs_to_load}
+        corrs = {corr: np.load(load_dir / f"{corr}.npy").astype(float) for corr in corrs_to_load}
         mass = 2.494 / corrs["vv_corr"][0]
         return cls(**corrs, dt=0.01, mass=mass, trunc=10)
 
