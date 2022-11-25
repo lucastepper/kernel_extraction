@@ -2,12 +2,19 @@
 use cublas;
 use cublas_sys;
 use ndarray as nd;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::PyResult;
 use rustacuda::memory::DeviceBox;
 use rustacuda::prelude::*;
-use std::error::Error;
 use std::ffi::CString;
+use std::fmt::Display;
+
+fn into_pyresult<T, E: Display>(result: Result<T, E>) -> PyResult<T> {
+    match result {
+        Ok(t) => Ok(t),
+        Err(e) => Err(PyRuntimeError::new_err(format!("(CudaError) {}", e))),
+    }
+}
 
 struct KernelCuda {
     kernel: DeviceBuffer<f64>,
@@ -23,15 +30,16 @@ struct KernelCuda {
     _cuda_context: Context,
 }
 impl KernelCuda {
-    fn arr_to_gpu(
-        arr: Option<nd::ArrayView1<f64>>,
-    ) -> Result<Option<DeviceBuffer<f64>>, Box<dyn Error>> {
+    fn arr_to_gpu(arr: Option<nd::ArrayView1<f64>>) -> PyResult<Option<DeviceBuffer<f64>>> {
         match arr {
             None => Ok(None),
-            Some(arr) => Ok(Some(DeviceBuffer::from_slice(
-                &arr.as_slice()
-                    .expect("empty slice while copying data to device"),
-            )?)),
+            Some(arr) => {
+                let slice = match arr.as_slice() {
+                    Some(s) => s,
+                    None => return Err(PyValueError::new_err("arr_to_gpu: empyt array")),
+                };
+                Ok(Some(into_pyresult(DeviceBuffer::from_slice(slice))?))
+            }
         }
     }
 
@@ -40,27 +48,29 @@ impl KernelCuda {
         xdu_corr: Option<nd::ArrayView1<f64>>,
         dt: f64,
         trunc: usize,
-    ) -> Result<KernelCuda, Box<dyn Error>> {
+    ) -> PyResult<KernelCuda> {
         // Initialize the CUDA API
-        rustacuda::init(CudaFlags::empty())?;
+        into_pyresult(rustacuda::init(CudaFlags::empty()))?;
         // init device
-        let device = Device::get_device(0)?;
+        let device = into_pyresult(Device::get_device(0))?;
         // Create a context associated to this device
-        let _cuda_context =
-            Context::create_and_push(ContextFlags::MAP_HOST | ContextFlags::SCHED_AUTO, device)?;
+        let _cuda_context = into_pyresult(Context::create_and_push(
+            ContextFlags::MAP_HOST | ContextFlags::SCHED_AUTO,
+            device,
+        ))?;
         // Load the module containing the function we want to call
         let module_data = CString::new(include_str!("compute_kernel.ptx"))?;
-        let module = Module::load_from_string(&module_data)?;
+        let module = into_pyresult(Module::load_from_string(&module_data))?;
         // Create a stream to submit work to
-        let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
+        let stream = into_pyresult(Stream::new(StreamFlags::NON_BLOCKING, None))?;
         // Create cublas context
-        let cublas_context = cublas::API::create().unwrap();
+        let cublas_context = into_pyresult(cublas::API::create())?;
         // init obj
         Ok(KernelCuda {
-            kernel: DeviceBuffer::from_slice(&vec![0.; trunc])?,
+            kernel: into_pyresult(DeviceBuffer::from_slice(&vec![0.; trunc]))?,
             vv_corr_rev: Self::arr_to_gpu(vv_corr_rev)?,
             xdu_corr: Self::arr_to_gpu(xdu_corr)?,
-            dot: DeviceBox::new(&0.0)?,
+            dot: into_pyresult(DeviceBox::new(&0.0))?,
             dt,
             module,
             stream,
@@ -100,8 +110,7 @@ impl KernelCuda {
             }
             unsafe {
                 // compute the kernel at time i * dt using the dot product
-                // launch!(module.kernel_step_double<<<1, 1, 0, stream>>>(
-                launch!(module.kernel_step_double<<<1, 1, 0, stream>>>(
+                into_pyresult(launch!(module.kernel_step_double<<<1, 1, 0, stream>>>(
                     self.dot.as_device_ptr(),
                     self.kernel.as_device_ptr(),
                     vv_corr_rev.as_device_ptr(),
@@ -109,19 +118,17 @@ impl KernelCuda {
                     self.dt,
                     i,
                     len
-                ))
-                .unwrap();
-                // }
-                stream.synchronize().unwrap();
+                )))?;
+                into_pyresult(stream.synchronize())?;
             }
         }
         Ok(())
     }
 
-    fn get_kernel(&self) -> nd::Array1<f64> {
+    fn get_kernel(&self) -> PyResult<nd::Array1<f64>> {
         let mut kernel_host = vec![0.; self.kernel.len()];
-        self.kernel.copy_to(&mut kernel_host).unwrap();
-        nd::Array1::from_vec(kernel_host)
+        into_pyresult(self.kernel.copy_to(&mut kernel_host))?;
+        Ok(nd::Array1::from_vec(kernel_host))
     }
 }
 
@@ -131,7 +138,7 @@ pub fn g_method_xdu_nomass(
     dt: f64,
     trunc: usize,
 ) -> PyResult<nd::Array1<f64>> {
-    let mut kernel_cuda = KernelCuda::new(Some(vv_corr), Some(xdu_corr), dt, trunc).unwrap();
+    let mut kernel_cuda = KernelCuda::new(Some(vv_corr), Some(xdu_corr), dt, trunc)?;
     kernel_cuda.g_method_xdu_nomass()?;
-    Ok(kernel_cuda.get_kernel())
+    kernel_cuda.get_kernel()
 }
