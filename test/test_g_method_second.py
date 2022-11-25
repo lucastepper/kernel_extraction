@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import matplotlib.pyplot as plt
 import pytest
 import utils
 import kernel_extraction
@@ -44,3 +46,10 @@ def test_sim_data():
         test_data.gammas, test_data.ks
     )
     np.testing.assert_allclose(kernel_i, kernel_ref.get_kernel_int(time), rtol=5e-2, atol=1e-2)
+    # plot
+    if os.environ.get("PLOT") == "true":
+        kernel = kernel_extraction.Kernel.from_kernel_int(kernel_i, test_data.dt)
+        kernel.set_params_kernel_ref(test_data.gammas, test_data.ks)
+        axes = kernel.plot(label="sim")
+        axes[1].legend()
+        plt.show()
