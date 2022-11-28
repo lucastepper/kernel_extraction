@@ -6,40 +6,47 @@ import utils
 import kernel_extraction
 
 
-def _calc_G_method(vv_corr, xdu_corr, dt, trunc):
-    """Compute the integral over the kernel."""
+def g_method_xdu(vv_corr, xdu_corr, dt, mass,  trunc, loop=True):
+    """Gmethod with external potential."""
     kernel_i = np.zeros(trunc)
-    prefac = 2.0 / vv_corr[0]
-    for i in range(1, trunc):
-        kernel_i[i] = prefac * (
-            (xdu_corr[i] - vv_corr[i] * xdu_corr[0] / vv_corr[0]) / dt
-            - np.sum(kernel_i[1:i] * vv_corr[1:i][::-1])
-        )
+    prefac = 2.0 / (vv_corr[0] * dt)
+    for i in range(1, len(kernel_i)):
+        # analytically, the difference between mass * vv_corr and xdu_corr is zero,
+        # as they are both equal to kbt. Numerically, it helps to keep it in, though.
+        kernel_i[i] = mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]
+        if loop:
+            conv = 0.0
+            for j in range(1, i):
+                conv += kernel_i[i - j] * vv_corr[j]
+        else:
+            conv = np.sum(kernel_i[:i] * vv_corr[::-1][len(vv_corr) - i - 1 : -1])
+        kernel_i[i] -= dt * conv
+        kernel_i[i] *= prefac
     return kernel_i
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_g_method_cpu(device):
+def test_g_method_xdu(device):
     """Test extraction method versus reference implementation."""
     test_data = utils.load_test_data()
-    kernel_i_ref = _calc_G_method(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc
+    kernel_i_ref = g_method_xdu(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc
     )
-    kernel_i_test = kernel_extraction.g_method_xdu_nomass(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc, device
+    kernel_i_test = kernel_extraction.g_method_xdu(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc, device
     )
     # Saved the data in sinlges, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
 
 
 @pytest.mark.slow
-def test_sim_data():
+def test_sim_data_g_method_xdu():
     """Run GLE simulation, compute corrs from traj and extract kernel.
     Compare to the analytical reference kernel of the Markovian embedding.
     """
     test_data = utils.simulate_test_data()
-    kernel_i = kernel_extraction.g_method_xdu_nomass(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc, "cpu"
+    kernel_i = g_method_xdu(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc
     )
     # test
     time = np.arange(test_data.trunc) * test_data.dt
@@ -53,4 +60,5 @@ def test_sim_data():
         kernel.set_params_kernel_ref(test_data.gammas, test_data.ks)
         axes = kernel.plot(label="sim")
         axes[1].legend()
+        axes[1].set_title(r"G method $C^{xdu}$.")
         plt.show()
