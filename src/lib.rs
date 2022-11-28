@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate rustacuda;
 mod kernel_cuda;
+use std::collections::HashMap;
+
 use ndarray::{s, Array1, ArrayView1};
 use numpy::{IntoPyArray, PyArray1};
 use packed_simd::f64x4;
@@ -86,7 +88,15 @@ fn g_method_xdu_nomass<'py>(
             }
             kernel_int
         }
-        Device::Cuda => kernel_cuda::g_method_xdu_nomass(vv_corr_rev.view(), xdu_corr, dt, trunc)?,
+        Device::Cuda => {
+            let corrs = HashMap::from_iter(vec![
+                (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
+                (kernel_cuda::XDU_CORR, xdu_corr.view()),
+            ]);
+            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, None, trunc)?;
+            kernel_cuda.g_method_xdu_nomass()?;
+            kernel_cuda.get_kernel()?
+        }
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -122,7 +132,15 @@ fn g_method_xdu<'py>(
             }
             kernel_int
         }
-        Device::Cuda => kernel_cuda::g_method_xdu(vv_corr_rev.view(), xdu_corr, dt, mass, trunc)?,
+        Device::Cuda => {
+            let corrs = HashMap::from_iter(vec![
+                (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
+                (kernel_cuda::XDU_CORR, xdu_corr.view()),
+            ]);
+            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc)?;
+            kernel_cuda.g_method_xdu()?;
+            kernel_cuda.get_kernel()?
+        }
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -164,14 +182,19 @@ fn g_method_xdu_halfstep<'py>(
             }
             kernel_int
         }
-        Device::Cuda => kernel_cuda::g_method_xdu_halfstep(
-            vv_corr_rev.view(),
-            vv_corr_plus_next_rev.view(),
-            xdu_corr,
-            dt,
-            mass,
-            trunc,
-        )?,
+        Device::Cuda => {
+            let corrs = HashMap::from_iter(vec![
+                (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
+                (
+                    kernel_cuda::VV_CORR_REV_PLUS_NEXT,
+                    vv_corr_plus_next_rev.view(),
+                ),
+                (kernel_cuda::XDU_CORR, xdu_corr.view()),
+            ]);
+            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc)?;
+            kernel_cuda.g_method_xdu_halfstep()?;
+            kernel_cuda.get_kernel()?
+        }
     };
     Ok(kernel_int.into_pyarray(py))
 }
