@@ -127,9 +127,59 @@ fn g_method_xdu<'py>(
     Ok(kernel_int.into_pyarray(py))
 }
 
+#[pyfunction]
+#[pyo3(text_signature = "(vv_corr, xdu_corr, dt, mass, trunc, device)")]
+fn g_method_xdu_halfstep<'py>(
+    py: Python<'py>,
+    vv_corr: &'py PyArray1<f64>,
+    xdu_corr: &'py PyArray1<f64>,
+    dt: f64,
+    mass: f64,
+    trunc: usize,
+    device: String,
+) -> PyResult<&'py PyArray1<f64>> {
+    // flipping vv_corr once and compution convolution as dot prod is faster
+    let vv_corr = unsafe { vv_corr.as_array() };
+    let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
+    // for the cpu version of the half step, we needan array containting the
+    // sum of reversed(vv_corr[i] and vv_corr[i + i]) for the convolution
+    let vv_corr_plus_next_rev = &vv_corr_rev.slice(s![1..]) + &vv_corr_rev.slice(s![..-1]);
+    let xdu_corr = unsafe { xdu_corr.as_array() };
+    // do actual computation
+    let len = vv_corr_plus_next_rev.shape()[0];
+    let kernel_int = match Device::from_str(&device)? {
+        Device::Cpu => {
+            let mut kernel_int = Array1::zeros(trunc);
+            let prefac = 1.0 / (vv_corr[0] + vv_corr[1]);
+            let prefac_vv_corr = 2.0 / dt;
+            for i in 1..trunc {
+                kernel_int[i] =
+                    prefac_vv_corr * (mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]);
+                let conv = dot_prod_par_simd(
+                    kernel_int.slice(s![1..i]),
+                    vv_corr_plus_next_rev.slice(s![(len - i)..(len - 1)]),
+                );
+                kernel_int[i] -= conv;
+                kernel_int[i] *= prefac;
+            }
+            kernel_int
+        }
+        Device::Cuda => kernel_cuda::g_method_xdu_halfstep(
+            vv_corr_rev.view(),
+            vv_corr_plus_next_rev.view(),
+            xdu_corr,
+            dt,
+            mass,
+            trunc,
+        )?,
+    };
+    Ok(kernel_int.into_pyarray(py))
+}
+
 #[pymodule]
 fn kernel_extraction(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(g_method_xdu_nomass))?;
     m.add_wrapped(wrap_pyfunction!(g_method_xdu))?;
+    m.add_wrapped(wrap_pyfunction!(g_method_xdu_halfstep))?;
     Ok(())
 }

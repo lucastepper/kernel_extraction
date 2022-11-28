@@ -1,9 +1,9 @@
 extern "C"
 __global__ void kernel_step_g_method_nomass_double(
-    double *conv, double *kernel, double *vv_corr_rev,
-    double * xdu_corr, double dt, int i, int len
+    double *conv, double *kernel_i, double *vv_corr_rev,
+    double *xdu_corr, double dt, int i, int len
     ) {
-    kernel[i] = 2. / vv_corr_rev[len - 1] * ((
+    kernel_i[i] = 2. / vv_corr_rev[len - 1] * ((
             xdu_corr[i]
             - vv_corr_rev[len - 1 - i] * xdu_corr[0] / vv_corr_rev[len - 1]
         ) / dt - conv[0]);
@@ -11,11 +11,23 @@ __global__ void kernel_step_g_method_nomass_double(
 
 extern "C"
 __global__ void kernel_step_g_method_double(
-    double *conv, double *kernel, double *vv_corr_rev, double * xdu_corr,
+    double *conv, double *kernel_i, double *vv_corr_rev, double *xdu_corr,
     double mass, double dt, int i, int len
     ) {
-    kernel[i] = 2. / vv_corr_rev[len - 1] * ((
+    kernel_i[i] = 2. / vv_corr_rev[len - 1] * ((
         mass * (vv_corr_rev[len - 1] - vv_corr_rev[len - 1 - i]) 
         + xdu_corr[i] - xdu_corr[0]
         ) / dt - conv[0]);
+}
+
+extern "C"
+__global__ void kernel_step_g_method_halfstep_double(
+    double *conv, double *kernel_i, double *vv_corr_rev, double *xdu_corr,
+    double mass, double dt, int i, int len
+    ) {
+        kernel_i[i] = 1.0 / (vv_corr_rev[len - 1] + vv_corr_rev[len - 2]) * (
+            2.0 / dt * (
+                mass * (vv_corr_rev[len - 1] - vv_corr_rev[len - 1 - i]) + xdu_corr[i] - xdu_corr[0]
+            ) - conv[0]
+        );
 }

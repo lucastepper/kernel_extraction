@@ -35,6 +35,7 @@ fn get_device_pointer<T>(
 pub struct KernelCuda {
     kernel: DeviceBuffer<f64>,
     vv_corr_rev: Option<DeviceBuffer<f64>>,
+    vv_corr_plus_next_rev: Option<DeviceBuffer<f64>>,
     xdu_corr: Option<DeviceBuffer<f64>>,
     dt: f64,
     mass: Option<f64>,
@@ -65,6 +66,7 @@ impl KernelCuda {
     // All kernel extraction methods get their own function to decide which fields to set
     fn new(
         vv_corr_rev: Option<nd::ArrayView1<f64>>,
+        vv_corr_plus_next_rev: Option<nd::ArrayView1<f64>>,
         xdu_corr: Option<nd::ArrayView1<f64>>,
         dt: f64,
         mass: Option<f64>,
@@ -90,6 +92,7 @@ impl KernelCuda {
         Ok(KernelCuda {
             kernel: into_pyresult(DeviceBuffer::from_slice(&vec![0.; trunc]))?,
             vv_corr_rev: Self::arr_to_gpu(vv_corr_rev)?,
+            vv_corr_plus_next_rev: Self::arr_to_gpu(vv_corr_plus_next_rev)?,
             xdu_corr: Self::arr_to_gpu(xdu_corr)?,
             dot: into_pyresult(DeviceBox::new(&0.0))?,
             dt,
@@ -188,6 +191,50 @@ impl KernelCuda {
         Ok(())
     }
 
+    fn g_method_xdu_halfstep(&mut self) -> PyResult<()> {
+        let module = &self.module;
+        let stream = &self.stream;
+        let vv_corr_rev = get_device_pointer(&mut self.vv_corr_rev, "vv_corr_rev")?;
+        let vv_corr_plus_next_rev =
+            get_device_pointer(&mut self.vv_corr_plus_next_rev, "vv_corr_plus_next_rev")?;
+        let xdu_corr = get_device_pointer(&mut self.xdu_corr, "xdu_corr")?;
+        for i in 1..self.kernel.len() {
+            // compute the convolution via dot of cublas
+            // We have to keep in mind that len belongs to the lenght of vv_corr_rev, which is
+            // one element longer than the the array containing cvv[::-1][1:] + cvv[::-1][:-1]
+            unsafe {
+                cublas_sys::cublasDdot_v2(
+                    *self.cublas_context.id_c(),
+                    i as i32,
+                    self.kernel.as_device_ptr().as_raw(),
+                    1i32,
+                    vv_corr_plus_next_rev
+                        .as_raw()
+                        .offset((self.len_data - i - 2) as isize),
+                    1i32,
+                    self.dot.as_device_ptr().as_raw_mut(),
+                );
+            }
+            unsafe {
+                // compute the kernel at time i * dt using the precomputed convolution
+                into_pyresult(
+                    launch!(module.kernel_step_g_method_halfstep_double<<<1, 1, 0, stream>>>(
+                        self.dot.as_device_ptr(),
+                        self.kernel.as_device_ptr(),
+                        vv_corr_rev,
+                        xdu_corr,
+                        self.get_mass()?,
+                        self.dt,
+                        i,
+                        self.len_data
+                    )),
+                )?;
+                into_pyresult(stream.synchronize())?;
+            }
+        }
+        Ok(())
+    }
+
     fn get_kernel(&self) -> PyResult<nd::Array1<f64>> {
         let mut kernel_host = vec![0.; self.kernel.len()];
         into_pyresult(self.kernel.copy_to(&mut kernel_host))?;
@@ -196,24 +243,52 @@ impl KernelCuda {
 }
 
 pub fn g_method_xdu_nomass(
-    vv_corr: nd::ArrayView1<f64>,
+    vv_corr_rev: nd::ArrayView1<f64>,
     xdu_corr: nd::ArrayView1<f64>,
     dt: f64,
     trunc: usize,
 ) -> PyResult<nd::Array1<f64>> {
-    let mut kernel_cuda = KernelCuda::new(Some(vv_corr), Some(xdu_corr), dt, None, trunc)?;
+    let mut kernel_cuda =
+        KernelCuda::new(Some(vv_corr_rev), None, Some(xdu_corr), dt, None, trunc)?;
     kernel_cuda.g_method_xdu_nomass()?;
     kernel_cuda.get_kernel()
 }
 
 pub fn g_method_xdu(
-    vv_corr: nd::ArrayView1<f64>,
+    vv_corr_rev: nd::ArrayView1<f64>,
     xdu_corr: nd::ArrayView1<f64>,
     dt: f64,
     mass: f64,
     trunc: usize,
 ) -> PyResult<nd::Array1<f64>> {
-    let mut kernel_cuda = KernelCuda::new(Some(vv_corr), Some(xdu_corr), dt, Some(mass), trunc)?;
+    let mut kernel_cuda = KernelCuda::new(
+        Some(vv_corr_rev),
+        None,
+        Some(xdu_corr),
+        dt,
+        Some(mass),
+        trunc,
+    )?;
     kernel_cuda.g_method_xdu()?;
+    kernel_cuda.get_kernel()
+}
+
+pub fn g_method_xdu_halfstep(
+    vv_corr_rev: nd::ArrayView1<f64>,
+    vv_corr_plus_next_rev: nd::ArrayView1<f64>,
+    xdu_corr: nd::ArrayView1<f64>,
+    dt: f64,
+    mass: f64,
+    trunc: usize,
+) -> PyResult<nd::Array1<f64>> {
+    let mut kernel_cuda = KernelCuda::new(
+        Some(vv_corr_rev),
+        Some(vv_corr_plus_next_rev),
+        Some(xdu_corr),
+        dt,
+        Some(mass),
+        trunc,
+    )?;
+    kernel_cuda.g_method_xdu_halfstep()?;
     kernel_cuda.get_kernel()
 }

@@ -19,7 +19,7 @@ def g_method_nomass(vv_corr, xdu_corr, dt, trunc):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_g_method_cpu(device):
+def test_g_method_nomass(device):
     """Test extraction method versus reference implementation."""
     test_data = utils.load_test_data()
     kernel_i_ref = g_method_nomass(
@@ -28,12 +28,12 @@ def test_g_method_cpu(device):
     kernel_i_test = kernel_extraction.g_method_xdu_nomass(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.trunc, device
     )
-    # Saved the data in sinlges, reduce rtol
+    # Saved the data in singles, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
 
 
 @pytest.mark.slow
-def test_sim_data():
+def test_sim_data_method_nomass():
     """Run GLE simulation, compute corrs from traj and extract kernel.
     Compare to the analytical reference kernel of the Markovian embedding.
     """
