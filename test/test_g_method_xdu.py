@@ -45,8 +45,8 @@ def test_sim_data_g_method_xdu():
     Compare to the analytical reference kernel of the Markovian embedding.
     """
     test_data = utils.simulate_test_data()
-    kernel_i = g_method_xdu(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc
+    kernel_i = kernel_extraction.g_method_xdu(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc, "cpu"
     )
     # test
     time = np.arange(test_data.trunc) * test_data.dt

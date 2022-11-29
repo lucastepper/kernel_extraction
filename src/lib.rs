@@ -1,14 +1,13 @@
 #[macro_use]
 extern crate rustacuda;
 mod kernel_cuda;
-use std::collections::HashMap;
-
 use ndarray::{s, Array1, ArrayView1};
 use numpy::{IntoPyArray, PyArray1};
 use packed_simd::f64x4;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
+use std::collections::HashMap;
 
 enum Device {
     Cpu,
@@ -199,10 +198,65 @@ fn g_method_xdu_halfstep<'py>(
     Ok(kernel_int.into_pyarray(py))
 }
 
+#[pyfunction]
+#[pyo3(text_signature = "(vv_corr, vdu_corr, dt, mass, trunc, device)")]
+fn g_method_vdu<'py>(
+    py: Python<'py>,
+    vv_corr: &'py PyArray1<f64>,
+    vdu_corr: &'py PyArray1<f64>,
+    dt: f64,
+    mass: f64,
+    trunc: usize,
+    device: String,
+) -> PyResult<&'py PyArray1<f64>> {
+    // flipping vv_corr once and compution convolution as dot prod is faster
+    let vv_corr = unsafe { vv_corr.as_array() };
+    let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
+    let vdu_corr = unsafe { vdu_corr.as_array() };
+    let len = vv_corr_rev.shape()[0];
+    // to streamline the computation of all terms for the trapezodial rule
+    // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
+    // where we set the first element to zero
+    let mut vdu_corr_cumsum = Array1::zeros(trunc);
+    for i in 1..trunc {
+        vdu_corr_cumsum[i] = vdu_corr_cumsum[i - 1] + vdu_corr[i];
+    }
+    // do actual computation
+    let kernel_int = match Device::from_str(&device)? {
+        Device::Cpu => {
+            let mut kernel_int = Array1::zeros(trunc);
+            let prefac = 1.0 / vv_corr[0];
+            for i in 1..trunc {
+                let conv = dot_prod_par_simd(
+                    kernel_int.slice(s![1..i]),
+                    vv_corr_rev.slice(s![(len - i)..(len - 1)]),
+                );
+                kernel_int[i] = prefac
+                    * (2. * mass / dt * (vv_corr[0] - vv_corr[i]) + vdu_corr[0] + vdu_corr[i]
+                        - 2. * conv
+                        - 2. * vdu_corr_cumsum[i - 1]);
+            }
+            kernel_int
+        }
+        Device::Cuda => {
+            let corrs = HashMap::from_iter(vec![
+                (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
+                (kernel_cuda::VDU_CORR, vdu_corr.view()),
+                (kernel_cuda::VDU_CORR_CUMSUM, vdu_corr_cumsum.view()),
+            ]);
+            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc)?;
+            kernel_cuda.g_method_vdu()?;
+            kernel_cuda.get_kernel()?
+        }
+    };
+    Ok(kernel_int.into_pyarray(py))
+}
+
 #[pymodule]
 fn kernel_extraction(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(g_method_xdu_nomass))?;
     m.add_wrapped(wrap_pyfunction!(g_method_xdu))?;
     m.add_wrapped(wrap_pyfunction!(g_method_xdu_halfstep))?;
+    m.add_wrapped(wrap_pyfunction!(g_method_vdu))?;
     Ok(())
 }

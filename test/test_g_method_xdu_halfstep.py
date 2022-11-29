@@ -52,8 +52,8 @@ def test_sim_data_g_method_xdu_halfstep():
     Compare to the analytical reference kernel of the Markovian embedding.
     """
     test_data = utils.simulate_test_data()
-    kernel_i = g_method_xdu_halfstep(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc
+    kernel_i = kernel_extraction.g_method_xdu_halfstep(
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc, "cpu"
     )
     kernel_obj = kernel_extraction.Kernel.from_kernel_int(kernel_i, test_data.dt, halfstep=True)
     # test

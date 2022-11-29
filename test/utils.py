@@ -19,6 +19,7 @@ CONFIG = {
     "ks": [100.0, 1000.0],
     "k": 120.0,
 }
+CORRS = ["vv_corr", "xdu_corr", "vdu_corr"]
 
 
 @dataclass
@@ -29,6 +30,7 @@ class TestData:
 
     vv_corr: np.ndarray
     xdu_corr: np.ndarray
+    vdu_corr: np.ndarray
     dt: float
     mass: float
     trunc: int
@@ -43,19 +45,17 @@ class TestData:
         if load_dir.name != "test":
             load_dir = load_dir / "test"
         load_dir = load_dir / "data"
-        corrs_to_load = ["vv_corr", "xdu_corr"]
-        corrs = {corr: np.load(load_dir / f"{corr}.npy").astype(float) for corr in corrs_to_load}
+        corrs = {corr: np.load(load_dir / f"{corr}.npy").astype(float) for corr in CORRS}
         mass = 2.494 / corrs["vv_corr"][0]
         return cls(**corrs, dt=0.01, mass=mass, trunc=10)
 
     @classmethod
     def simulate(cls):
         """Run GLE simulation and compute correlations."""
-        corrs_to_compute = ["vv_corr", "xdu_corr"]
-        temp_files = [Path(f"/tmp/{corr}.npy") for corr in corrs_to_compute]
+        temp_files = [Path(f"/tmp/{corr}.npy") for corr in CORRS]
         if all(temp_file.exists() for temp_file in temp_files):
             corrs = {
-                corr: np.load(temp_file) for corr, temp_file in zip(corrs_to_compute, temp_files)
+                corr: np.load(temp_file) for corr, temp_file in zip(CORRS, temp_files)
             }
             traj = None
         else:
@@ -69,10 +69,13 @@ class TestData:
             du = gle_sim.du_dx(traj, config)
             corrs["vv_corr"] = correlation.correlation(vel, vel, CONFIG["trunc"])
             corrs["xdu_corr"] = correlation.correlation(traj, du, CONFIG["trunc"])
+            corrs["vdu_corr"] = correlation.correlation(vel, du, CONFIG["trunc"])
             if SAVE_IN_TEMP:
                 for key, item in corrs.items():
                     to_save = f"/tmp/{key}.npy"
-                    assert to_save in [str(t) for t in temp_files]
+                    assert to_save in [
+                        str(t) for t in temp_files
+                    ], f"please add {to_save=} to CORRS list"
                     np.save(to_save, item)
         return cls(
             **corrs,

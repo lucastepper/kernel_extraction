@@ -14,6 +14,8 @@ use std::fmt::Display;
 pub const VV_CORR_REV: &str = "vv_corr_rev";
 pub const VV_CORR_REV_PLUS_NEXT: &str = "vv_corr_plus_next_rev";
 pub const XDU_CORR: &str = "xdu_corr";
+pub const VDU_CORR: &str = "vdu_corr";
+pub const VDU_CORR_CUMSUM: &str = "vdu_corr_cumsum";
 
 // Convert a rustacuda::error::CudaError and cublas::Error to a PyResult
 fn into_pyresult<T, E: Display>(result: Result<T, E>) -> PyResult<T> {
@@ -147,7 +149,7 @@ impl KernelCuda {
             unsafe {
                 // compute the kernel at time i * dt using the precomputed convolution
                 into_pyresult(
-                    launch!(module.kernel_step_g_method_nomass_double<<<1, 1, 0, stream>>>(
+                    launch!(module.kernel_step_g_method_xdu_nomass_double<<<1, 1, 0, stream>>>(
                         self.dot.as_device_ptr(),
                         self.kernel.as_device_ptr(),
                         vv_corr_rev,
@@ -186,7 +188,7 @@ impl KernelCuda {
             unsafe {
                 // compute the kernel at time i * dt using the precomputed convolution
                 into_pyresult(
-                    launch!(module.kernel_step_g_method_double<<<1, 1, 0, stream>>>(
+                    launch!(module.kernel_step_g_method_xdu_double<<<1, 1, 0, stream>>>(
                         self.dot.as_device_ptr(),
                         self.kernel.as_device_ptr(),
                         vv_corr_rev,
@@ -229,11 +231,53 @@ impl KernelCuda {
             unsafe {
                 // compute the kernel at time i * dt using the precomputed convolution
                 into_pyresult(
-                    launch!(module.kernel_step_g_method_halfstep_double<<<1, 1, 0, stream>>>(
+                    launch!(module.kernel_step_g_method_xdu_halfstep_double<<<1, 1, 0, stream>>>(
                         self.dot.as_device_ptr(),
                         self.kernel.as_device_ptr(),
                         vv_corr_rev,
                         xdu_corr,
+                        self.get_mass()?,
+                        self.dt,
+                        i,
+                        self.len_data
+                    )),
+                )?;
+                into_pyresult(stream.synchronize())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn g_method_vdu(&mut self) -> PyResult<()> {
+        let module = &self.module;
+        let stream = &self.stream;
+        let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
+        let vdu_corr = get_device_pointer(&mut self.corrs, VDU_CORR)?;
+        let vdu_corr_cumsum = get_device_pointer(&mut self.corrs, VDU_CORR_CUMSUM)?;
+        for i in 1..self.kernel.len() {
+            // compute the convolution via dot of cublas
+            unsafe {
+                cublas_sys::cublasDdot_v2(
+                    *self.cublas_context.id_c(),
+                    i as i32,
+                    self.kernel.as_device_ptr().as_raw(),
+                    1i32,
+                    vv_corr_rev
+                        .as_raw()
+                        .offset((self.len_data - i - 1) as isize),
+                    1i32,
+                    self.dot.as_device_ptr().as_raw_mut(),
+                );
+            }
+            unsafe {
+                // compute the kernel at time i * dt using the precomputed convolution
+                into_pyresult(
+                    launch!(module.kernel_step_g_method_vdu_double<<<1, 1, 0, stream>>>(
+                        self.dot.as_device_ptr(),
+                        self.kernel.as_device_ptr(),
+                        vv_corr_rev,
+                        vdu_corr,
+                        vdu_corr_cumsum,
                         self.get_mass()?,
                         self.dt,
                         i,
