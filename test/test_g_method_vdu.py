@@ -19,6 +19,7 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, loop=False):
         trunc (int): number of frames of G(t) to compute
         loop (bool): whether to loop to compute covolution integral
     """
+    trunc = np.min([len(vv_corr), len(vdu_corr), trunc])
     kernel_int = np.zeros(trunc)
     # to streamline the computation of all terms for the trapezodial rule
     # of the integral over vdu_corr, we precompute the cum sum of vdu_corr
@@ -41,11 +42,13 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, loop=False):
 def test_g_method_vdu(device):
     """Test extraction method versus reference implementation."""
     test_data = utils.load_test_data()
+    # test that the length of the correlation functions is taken into account
+    trunc = 2 * len(test_data.vv_corr)
     kernel_i_ref = g_method_vdu(
-        test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, test_data.trunc
+        test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, trunc
     )
     kernel_i_test = kernel_extraction.g_method_vdu(
-        test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, test_data.trunc, device
+        test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, trunc, device
     )
     # Saved the data in singles, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)

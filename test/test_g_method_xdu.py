@@ -8,6 +8,7 @@ import kernel_extraction
 
 def g_method_xdu(vv_corr, xdu_corr, dt, mass,  trunc, loop=True):
     """Gmethod with external potential."""
+    trunc = np.min([len(vv_corr), len(xdu_corr), trunc])
     kernel_i = np.zeros(trunc)
     prefac = 2.0 / (vv_corr[0] * dt)
     for i in range(1, len(kernel_i)):
@@ -29,11 +30,13 @@ def g_method_xdu(vv_corr, xdu_corr, dt, mass,  trunc, loop=True):
 def test_g_method_xdu(device):
     """Test extraction method versus reference implementation."""
     test_data = utils.load_test_data()
+    # test that the length of the correlation functions is taken into account
+    trunc = 2 * len(test_data.vv_corr)
     kernel_i_ref = g_method_xdu(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, trunc
     )
     kernel_i_test = kernel_extraction.g_method_xdu(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, test_data.trunc, device
+        test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, trunc, device
     )
     # Saved the data in sinlges, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)

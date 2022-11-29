@@ -68,6 +68,8 @@ fn g_method_xdu_nomass<'py>(
     let vv_corr = unsafe { vv_corr.as_array() };
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
     let xdu_corr = unsafe { xdu_corr.as_array() };
+    // check that corrs are long enough or lower trunc
+    let trunc = vv_corr.len().min(xdu_corr.len()).min(trunc);
     // do actual computation
     let len = vv_corr_rev.shape()[0];
     let mut convolution: f64;
@@ -115,6 +117,8 @@ fn g_method_xdu<'py>(
     let vv_corr = unsafe { vv_corr.as_array() };
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
     let xdu_corr = unsafe { xdu_corr.as_array() };
+    // check that corrs are long enough or lower trunc
+    let trunc = vv_corr.len().min(xdu_corr.len()).min(trunc);
     // do actual computation
     let len = vv_corr_rev.shape()[0];
     let kernel_int = match Device::from_str(&device)? {
@@ -158,6 +162,8 @@ fn g_method_xdu_halfstep<'py>(
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
+    // check that corrs are long enough or lower trunc
+    let trunc = vv_corr.len().min(xdu_corr.len()).min(trunc);
     // for the cpu version of the half step, we needan array containting the
     // sum of reversed(vv_corr[i] and vv_corr[i + i]) for the convolution
     let vv_corr_plus_next_rev = &vv_corr_rev.slice(s![1..]) + &vv_corr_rev.slice(s![..-1]);
@@ -214,6 +220,8 @@ fn g_method_vdu<'py>(
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
     let vdu_corr = unsafe { vdu_corr.as_array() };
     let len = vv_corr_rev.shape()[0];
+    // check that corrs are long enough or lower trunc
+    let trunc = vv_corr.len().min(vdu_corr.len()).min(trunc);
     // to streamline the computation of all terms for the trapezodial rule
     // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
     // where we set the first element to zero
