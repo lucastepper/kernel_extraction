@@ -1,5 +1,5 @@
 import sys
-from typing import Optional
+from typing import Iterable, Optional
 import numpy as np
 from enum import Enum
 from .kernel_extraction import (
@@ -22,6 +22,18 @@ def get_corr(corrs: dict[str, np.ndarray], key: str, idx_bin: int) -> np.ndarray
     if idx_bin is None:
         return corrs[key]
     return corrs[key][:, idx_bin]
+
+
+def get_nbins(corrs: dict[str, np.ndarray], warn_if_more: int = 1000) -> int:
+    """Assume that the first dimension is the number of times and the second
+    is the number of bins. Get any correlation and return the number of bins.
+    Assumes 'corr' in any key for a correlation.
+    """
+    for key, item in corrs.items():
+        if "corr" in key and item.ndim == 2:
+            if item.shape[1] > warn_if_more:
+                print(f"WARNING: Number of bins is {item.shape[1]}")
+            return item.shape[1]
 
 
 class ExtractionMethod(Enum):
@@ -87,3 +99,41 @@ def compute_kernel(
             trunc,
             device,
         )
+
+
+def compute_kernel_2d(
+    extraction_method: ExtractionMethod,
+    dt: float,
+    mass: Iterable = None,
+    kbt: float = None,
+    trunc: int = sys.maxsize,
+    idx_bin: int = None,
+    device: str = "cpu",
+    **kwargs,
+) -> np.ndarray:
+    if mass is None:
+        if kbt is None:
+            raise ValueError("Method requires mass or kbt but both are None")
+        mass = kbt / get_corr(kwargs, "vv_corr", None)[0]
+    else:
+        if not isinstance(mass, Iterable):
+            raise ValueError("Mass must be iterable")
+    corrs = {}
+    for key, item in kwargs.items():
+        if not "corr" in key:
+            continue
+        if "du" in key:
+            # for 2d kernel, we divide potential and kernel by mass, so the volterra
+            # equation can be derived. Rescale kernel after extraction
+            item = item / mass.reshape(1, -1)
+        corrs[key] = item
+    trunc = min(trunc, len(corrs["vv_corr"]), len(corrs["vdu_corr"]))
+    nbins = get_nbins(corrs)
+    kernel = np.zeros((trunc, nbins))
+    for idx_bin, m in enumerate(mass):
+        # Since we rescale kernel and potential by mass, we need to set mass to one
+        # during extraction and then rescale after the extraction
+        kernel[:, idx_bin] = m * compute_kernel(
+            extraction_method, dt, mass=1.0, trunc=trunc, idx_bin=idx_bin, device=device, **corrs
+        )
+    return kernel

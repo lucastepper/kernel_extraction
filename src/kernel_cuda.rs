@@ -80,7 +80,7 @@ impl KernelCuda {
             device,
         ))?;
         // Load the module containing the function we want to call
-        let module_data = CString::new(include_str!("compute_kernel.ptx"))?;
+        let module_data = CString::new(include_str!("kernel_steps.ptx"))?;
         let module = into_pyresult(Module::load_from_string(&module_data))?;
         // Create a stream to submit work to
         let stream = into_pyresult(Stream::new(StreamFlags::NON_BLOCKING, None))?;

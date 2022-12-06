@@ -1,6 +1,6 @@
 from .kernel_extraction import *
 from .kernel import Kernel, RefKernelExponential
-from .compute_kernel import ExtractionMethod, compute_kernel
+from .compute_kernel import ExtractionMethod, compute_kernel, compute_kernel_2d
 
 
 __all__ = [
@@ -8,4 +8,5 @@ __all__ = [
     "RefKernelExponential",
     "ExtractionMethod",
     "compute_kernel",
+    "compute_kernel_2d",
 ]

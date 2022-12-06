@@ -64,6 +64,25 @@ def test_g_method_vdu(device):
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test_2, rtol=5e-5)
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_g_method_vdu_2d(device):
+    """Test extraction method versus reference implementation for fake 2d data. """
+    test_data = utils.load_test_data()
+    kernel_i_ref = g_method_vdu(
+        test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, len(test_data.vv_corr)
+    )
+    kernel_i_test = kernel_extraction.compute_kernel_2d(
+        kernel_extraction.ExtractionMethod.G_METHOD_VDU,
+        test_data.dt,
+        mass=np.array([test_data.mass]),
+        device=device,
+        vv_corr=test_data.vv_corr.reshape(-1, 1),
+        vdu_corr=test_data.vdu_corr.reshape(-1, 1),
+    )
+    # Saved the data in singles, reduce rtol
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test[:, 0], rtol=5e-5)
+
+
 @pytest.mark.slow
 def test_sim_data_g_method_vdu():
     """Run GLE simulation, compute corrs from traj and extract kernel.
