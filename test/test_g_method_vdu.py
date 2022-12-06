@@ -24,11 +24,11 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, loop=False):
     # to streamline the computation of all terms for the trapezodial rule
     # of the integral over vdu_corr, we precompute the cum sum of vdu_corr
     # where we set the first element to zero
-    vdu_corr_cumsum = np.cumsum(np.concatenate([[0.], vdu_corr[1:trunc]]))
+    vdu_corr_cumsum = np.cumsum(np.concatenate([[0.0], vdu_corr[1:trunc]]))
     prefac = 1 / vv_corr[0]
     for i in range(1, len(kernel_int)):
-        kernel_int[i] = (vdu_corr[0] + vdu_corr[i] + (2 * mass / dt) * (vv_corr[0] - vv_corr[i]))
-        conv = 0.
+        kernel_int[i] = vdu_corr[0] + vdu_corr[i] + (2 * mass / dt) * (vv_corr[0] - vv_corr[i])
+        conv = 0.0
         for j in range(1, i):
             # conv += kernel_int[j] * vv_corr[i - j] + vdu_corr[j]
             conv += kernel_int[j] * vv_corr[i - j]
@@ -47,11 +47,21 @@ def test_g_method_vdu(device):
     kernel_i_ref = g_method_vdu(
         test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, trunc
     )
-    kernel_i_test = kernel_extraction.g_method_vdu(
+    kernel_i_test_1 = kernel_extraction.g_method_vdu(
         test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, trunc, device
     )
+    kernel_i_test_2 = kernel_extraction.compute_kernel(
+        kernel_extraction.ExtractionMethod.G_METHOD_VDU,
+        test_data.dt,
+        mass=test_data.mass,
+        trunc = trunc,
+        device=device,
+        vv_corr=test_data.vv_corr,
+        vdu_corr=test_data.vdu_corr,
+    )
     # Saved the data in singles, reduce rtol
-    np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_1, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_2, rtol=5e-5)
 
 
 @pytest.mark.slow

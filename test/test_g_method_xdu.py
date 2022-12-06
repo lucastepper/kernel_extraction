@@ -35,11 +35,21 @@ def test_g_method_xdu(device):
     kernel_i_ref = g_method_xdu(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, trunc
     )
-    kernel_i_test = kernel_extraction.g_method_xdu(
+    kernel_i_test_1 = kernel_extraction.g_method_xdu(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, test_data.mass, trunc, device
     )
-    # Saved the data in sinlges, reduce rtol
-    np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
+    kernel_i_test_2 = kernel_extraction.compute_kernel(
+        kernel_extraction.ExtractionMethod.G_METHOD_XDU,
+        test_data.dt,
+        mass=test_data.mass,
+        trunc = trunc,
+        device=device,
+        vv_corr=test_data.vv_corr,
+        xdu_corr=test_data.xdu_corr,
+    )
+    # Saved the data in singles, reduce rtol
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_1, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_2, rtol=5e-5)
 
 
 @pytest.mark.slow

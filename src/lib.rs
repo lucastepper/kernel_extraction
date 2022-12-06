@@ -163,7 +163,7 @@ fn g_method_xdu_halfstep<'py>(
     let vv_corr = unsafe { vv_corr.as_array() };
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
     // check that corrs are long enough or lower trunc
-    let trunc = vv_corr.len().min(xdu_corr.len()).min(trunc);
+    let trunc = (vv_corr.len() - 1).min(xdu_corr.len() - 1).min(trunc);
     // for the cpu version of the half step, we needan array containting the
     // sum of reversed(vv_corr[i] and vv_corr[i + i]) for the convolution
     let vv_corr_plus_next_rev = &vv_corr_rev.slice(s![1..]) + &vv_corr_rev.slice(s![..-1]);

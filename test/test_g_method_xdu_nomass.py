@@ -28,11 +28,20 @@ def test_g_method_nomass(device):
     kernel_i_ref = g_method_nomass(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, trunc
     )
-    kernel_i_test = kernel_extraction.g_method_xdu_nomass(
+    kernel_i_test_1 = kernel_extraction.g_method_xdu_nomass(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, trunc, device
     )
+    kernel_i_test_2 = kernel_extraction.compute_kernel(
+        kernel_extraction.ExtractionMethod.G_METHOD_XDU_NOMASS,
+        test_data.dt,
+        trunc = trunc,
+        device=device,
+        vv_corr=test_data.vv_corr,
+        xdu_corr=test_data.xdu_corr,
+    )
     # Saved the data in singles, reduce rtol
-    np.testing.assert_allclose(kernel_i_ref, kernel_i_test, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_1, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_2, rtol=5e-5)
 
 
 @pytest.mark.slow

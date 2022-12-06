@@ -1,28 +1,89 @@
+import sys
+from typing import Optional
 import numpy as np
-from numba import njit
+from enum import Enum
+from .kernel_extraction import (
+    g_method_vdu,
+    g_method_xdu,
+    g_method_xdu_nomass,
+    g_method_xdu_halfstep,
+)
 
 
-@njit
-def gamma_method(cvv, cva, caf, cadu, dt, trunc):
-    """ This is an alternatice volterra method extracting the memory kernel
-    $\Gamma(t)$ directly. It is based on a volterra method of the second kind.
-    Arguments:
-        cvv (np.ndarray): velocity autocorrelation function
-        cva (np.ndarray): velocity acceleration correlation function
-        caf (np.ndarray): acceleration force correlation function (caf = mass * caa)
-        cadu (np.ndarray): acceleration gradient of PMF correlation function
-        dt (float): time step
-        trunc (int): number of frames of G(t) to compute
+def check_mass(mass: Optional[float]) -> float:
+    if mass is None:
+        raise ValueError("Method requires mass but it is None")
+    return mass
+
+
+def get_corr(corrs: dict[str, np.ndarray], key: str, idx_bin: int) -> np.ndarray:
+    if key not in corrs:
+        raise ValueError(f"Method requires correlation: {key}, not in corrs")
+    if idx_bin is None:
+        return corrs[key]
+    return corrs[key][:, idx_bin]
+
+
+class ExtractionMethod(Enum):
     """
-    kernel = np.zeros(trunc)
-    prefac = 1. / (cvv[0] + cva[0] * dt * 0.5)
-    kernel[0] = (caf[0] + cadu[0]) / cvv[0]
-    for i in range(1, trunc):
-        num = caf[i] + cadu[i]
-        # do first instance of loop where j = 0 and we scale
-        # with 0.5 due to trapezoidal rule
-        num -= 0.5 * dt * cva[i] * kernel[0]
-        for j in range(1, i):
-            num -= dt * cva[i - j] * kernel[j]
-        kernel[i] = prefac * num
-    return kernel
+    Enum for the different kernel extraction methods that this module provides.
+    Methods named after wether they extract kernel or running integral and the
+    correlation functions they use
+    Variants:
+        g_method_xdu
+        g_method_xdu_nomass
+        g_method_xdu_halfstep
+        g_method_vdu
+    """
+
+    G_METHOD_XDU = "g_method_xdu"
+    G_METHOD_XDU_NOMASS = "g_method_xdu_nomass"
+    G_METHOD_XDU_HALFSTEP = "g_method_xdu_halfstep"
+    G_METHOD_VDU = "g_method_vdu"
+
+
+def compute_kernel(
+    extraction_method: ExtractionMethod,
+    dt: float,
+    mass: float = None,
+    trunc: int = sys.maxsize,
+    idx_bin: int = None,
+    device: str = "cpu",
+    **kwargs,
+) -> np.ndarray:
+    corrs = {key: kwargs[key] for key in kwargs if "corr" in key}
+    if extraction_method == ExtractionMethod.G_METHOD_XDU:
+        return g_method_xdu(
+            get_corr(corrs, "vv_corr", idx_bin),
+            get_corr(corrs, "xdu_corr", idx_bin),
+            dt,
+            check_mass(mass),
+            trunc,
+            device,
+        )
+    if extraction_method == ExtractionMethod.G_METHOD_XDU_NOMASS:
+        return g_method_xdu_nomass(
+            get_corr(corrs, "vv_corr", idx_bin),
+            get_corr(corrs, "xdu_corr", idx_bin),
+            dt,
+            trunc,
+            device,
+        )
+    if extraction_method == ExtractionMethod.G_METHOD_XDU_HALFSTEP:
+        return g_method_xdu_halfstep(
+            get_corr(corrs, "vv_corr", idx_bin),
+            get_corr(corrs, "xdu_corr", idx_bin),
+            dt,
+            check_mass(mass),
+            trunc,
+            device,
+        )
+    if extraction_method == ExtractionMethod.G_METHOD_VDU:
+        return g_method_vdu(
+            get_corr(corrs, "vv_corr", idx_bin),
+            get_corr(corrs, "vdu_corr", idx_bin),
+            dt,
+            check_mass(mass),
+            trunc,
+            device,
+        )
