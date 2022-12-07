@@ -1,4 +1,5 @@
 import sys
+import tqdm
 from typing import Iterable, Optional
 import numpy as np
 from enum import Enum
@@ -52,6 +53,9 @@ class ExtractionMethod(Enum):
     G_METHOD_XDU_NOMASS = "g_method_xdu_nomass"
     G_METHOD_XDU_HALFSTEP = "g_method_xdu_halfstep"
     G_METHOD_VDU = "g_method_vdu"
+
+    def __str__(self):
+        return self.value
 
 
 def compute_kernel(
@@ -109,6 +113,7 @@ def compute_kernel_2d(
     trunc: int = sys.maxsize,
     idx_bin: int = None,
     device: str = "cpu",
+    verbose=True,
     **kwargs,
 ) -> np.ndarray:
     if mass is None:
@@ -130,10 +135,12 @@ def compute_kernel_2d(
     trunc = min(trunc, len(corrs["vv_corr"]), len(corrs["vdu_corr"]))
     nbins = get_nbins(corrs)
     kernel = np.zeros((trunc, nbins))
+    bar = tqdm.tqdm(desc=f"{extraction_method}", disable=not verbose, total=len(mass), leave=False)
     for idx_bin, m in enumerate(mass):
         # Since we rescale kernel and potential by mass, we need to set mass to one
         # during extraction and then rescale after the extraction
         kernel[:, idx_bin] = m * compute_kernel(
             extraction_method, dt, mass=1.0, trunc=trunc, idx_bin=idx_bin, device=device, **corrs
         )
+        bar.update(1)
     return kernel
