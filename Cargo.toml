@@ -18,6 +18,7 @@ rustacuda_core = "0.1"
 rustacuda_derive = "0.1"
 cublas = "0.2.0"
 cublas-sys = "0.1.0"
+indicatif = "0.17.2"
 
 [dependencies.pyo3]
 version = "0.16.5"

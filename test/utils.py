@@ -19,7 +19,15 @@ CONFIG = {
     "ks": [100.0, 1000.0],
     "k": 120.0,
 }
-CORRS = ["vv_corr", "xdu_corr", "vdu_corr"]
+CORRS = ["vv_corr", "va_corr", "aa_corr", "xdu_corr", "vdu_corr", "adu_corr"]
+
+
+def get_test_dir() -> Path:
+    """ Make test executable from root or test dir. """
+    test_dir = Path(".").resolve()
+    if test_dir.name != "test":
+        test_dir = test_dir / "test"
+    return test_dir
 
 
 @dataclass
@@ -29,8 +37,11 @@ class TestData:
     """
 
     vv_corr: np.ndarray
+    va_corr: np.ndarray
+    aa_corr: np.ndarray
     xdu_corr: np.ndarray
     vdu_corr: np.ndarray
+    adu_corr: np.ndarray
     dt: float
     mass: float
     trunc: int

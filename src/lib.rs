@@ -260,11 +260,74 @@ fn g_method_vdu<'py>(
     Ok(kernel_int.into_pyarray(py))
 }
 
+#[pyfunction]
+#[pyo3(text_signature = "(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc, device)")]
+fn gamma_method<'py>(
+    py: Python<'py>,
+    vv_corr: &'py PyArray1<f64>,
+    va_corr: &'py PyArray1<f64>,
+    aa_corr: &'py PyArray1<f64>,
+    adu_corr: &'py PyArray1<f64>,
+    dt: f64,
+    mass: f64,
+    trunc: usize,
+    device: String,
+) -> PyResult<&'py PyArray1<f64>> {
+    // flipping vv_corr once and compution convolution as dot prod is faster
+    let vv_corr = unsafe { vv_corr.as_array() };
+    let va_corr = unsafe { va_corr.as_array() };
+    let va_corr_rev = Array1::from_iter(va_corr.iter().rev().map(|x| *x));
+    let aa_corr = unsafe { aa_corr.as_array() };
+    let adu_corr = unsafe { adu_corr.as_array() };
+    let len = va_corr_rev.shape()[0];
+    // check that corrs are long enough or lower trunc
+    let trunc = vv_corr
+        .len()
+        .min(va_corr.len())
+        .min(aa_corr.len())
+        .min(adu_corr.len())
+        .min(trunc);
+    // to streamline the computation of all terms for the trapezodial rule
+    // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
+    // where we set the first element to zero
+    let kernel_int = match Device::from_str(&device)? {
+        Device::Cpu => {
+            let mut kernel = Array1::zeros(trunc);
+            let prefac = 1.0 / (vv_corr[0] + va_corr[0] * dt * 0.5);
+            kernel[0] = (mass * aa_corr[0] + adu_corr[0]) / vv_corr[0];
+            for i in 1..trunc {
+                let conv = dot_prod_par_simd(
+                    kernel.slice(s![1..i]),
+                    va_corr_rev.slice(s![(len - i)..(len - 1)]),
+                );
+                kernel[i] = prefac
+                    * (mass * aa_corr[i] + adu_corr[i]
+                        - 0.5 * dt * va_corr[i] * kernel[0]
+                        - dt * conv);
+            }
+            kernel
+        }
+        Device::Cuda => {
+            let corrs = HashMap::from_iter(vec![
+                (kernel_cuda::VA_CORR_REV, va_corr_rev.view()),
+                (kernel_cuda::AA_CORR, aa_corr),
+                (kernel_cuda::ADU_CORR, adu_corr),
+            ]);
+            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc)?;
+            kernel_cuda.set_vv_corr_0(vv_corr[0]);
+            kernel_cuda.gamma_method()?;
+            kernel_cuda.get_kernel()?
+        }
+    };
+    Ok(kernel_int.into_pyarray(py))
+}
+
 #[pymodule]
 fn kernel_extraction(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(g_method_xdu_nomass))?;
     m.add_wrapped(wrap_pyfunction!(g_method_xdu))?;
     m.add_wrapped(wrap_pyfunction!(g_method_xdu_halfstep))?;
     m.add_wrapped(wrap_pyfunction!(g_method_vdu))?;
+    m.add_wrapped(wrap_pyfunction!(gamma_method))?;
     Ok(())
 }

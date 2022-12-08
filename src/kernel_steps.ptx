@@ -240,4 +240,83 @@
 	ret;
 
 }
+	// .globl	kernel_step_gamma_method_double
+.visible .entry kernel_step_gamma_method_double(
+	.param .u64 kernel_step_gamma_method_double_param_0,
+	.param .u64 kernel_step_gamma_method_double_param_1,
+	.param .u64 kernel_step_gamma_method_double_param_2,
+	.param .u64 kernel_step_gamma_method_double_param_3,
+	.param .u64 kernel_step_gamma_method_double_param_4,
+	.param .f64 kernel_step_gamma_method_double_param_5,
+	.param .f64 kernel_step_gamma_method_double_param_6,
+	.param .f64 kernel_step_gamma_method_double_param_7,
+	.param .u32 kernel_step_gamma_method_double_param_8,
+	.param .u32 kernel_step_gamma_method_double_param_9
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<5>;
+	.reg .f64 	%fd<25>;
+	.reg .b64 	%rd<19>;
+
+
+	ld.param.u64 	%rd4, [kernel_step_gamma_method_double_param_0];
+	ld.param.u64 	%rd6, [kernel_step_gamma_method_double_param_1];
+	ld.param.u64 	%rd5, [kernel_step_gamma_method_double_param_2];
+	ld.param.u64 	%rd7, [kernel_step_gamma_method_double_param_3];
+	ld.param.u64 	%rd8, [kernel_step_gamma_method_double_param_4];
+	ld.param.f64 	%fd1, [kernel_step_gamma_method_double_param_5];
+	ld.param.f64 	%fd2, [kernel_step_gamma_method_double_param_6];
+	ld.param.f64 	%fd3, [kernel_step_gamma_method_double_param_7];
+	ld.param.u32 	%r1, [kernel_step_gamma_method_double_param_8];
+	ld.param.u32 	%r2, [kernel_step_gamma_method_double_param_9];
+	cvta.to.global.u64 	%rd1, %rd6;
+	cvta.to.global.u64 	%rd2, %rd8;
+	cvta.to.global.u64 	%rd3, %rd7;
+	setp.eq.s32 	%p1, %r1, 0;
+	@%p1 bra 	LBB4_2;
+
+	cvta.to.global.u64 	%rd9, %rd5;
+	cvta.to.global.u64 	%rd10, %rd4;
+	mul.wide.s32 	%rd11, %r2, 8;
+	add.s64 	%rd12, %rd9, %rd11;
+	ld.global.f64 	%fd4, [%rd12+-8];
+	mul.f64 	%fd5, %fd4, %fd3;
+	fma.rn.f64 	%fd6, %fd5, 0d3FE0000000000000, %fd1;
+	rcp.rn.f64 	%fd7, %fd6;
+	mul.wide.s32 	%rd13, %r1, 8;
+	add.s64 	%rd14, %rd3, %rd13;
+	ld.global.f64 	%fd8, [%rd14];
+	add.s64 	%rd15, %rd2, %rd13;
+	ld.global.f64 	%fd9, [%rd15];
+	fma.rn.f64 	%fd10, %fd8, %fd2, %fd9;
+	not.b32 	%r3, %r1;
+	add.s32 	%r4, %r3, %r2;
+	mul.wide.s32 	%rd16, %r4, 8;
+	add.s64 	%rd17, %rd9, %rd16;
+	ld.global.f64 	%fd11, [%rd17];
+	mul.f64 	%fd12, %fd3, 0d3FE0000000000000;
+	mul.f64 	%fd13, %fd12, %fd11;
+	ld.global.f64 	%fd14, [%rd1];
+	mul.f64 	%fd15, %fd13, %fd14;
+	sub.f64 	%fd16, %fd10, %fd15;
+	ld.global.f64 	%fd17, [%rd10];
+	mul.f64 	%fd18, %fd17, %fd3;
+	sub.f64 	%fd19, %fd16, %fd18;
+	mul.f64 	%fd20, %fd7, %fd19;
+	add.s64 	%rd18, %rd1, %rd13;
+	st.global.f64 	[%rd18], %fd20;
+	bra.uni 	LBB4_3;
+
+LBB4_2:
+	ld.global.f64 	%fd21, [%rd3];
+	ld.global.f64 	%fd22, [%rd2];
+	fma.rn.f64 	%fd23, %fd21, %fd2, %fd22;
+	div.rn.f64 	%fd24, %fd23, %fd1;
+	st.global.f64 	[%rd1], %fd24;
+
+LBB4_3:
+	ret;
+
+}
 

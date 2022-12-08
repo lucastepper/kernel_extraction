@@ -13,8 +13,11 @@ use std::fmt::Display;
 // define all corrs to use as keys in a hashmap
 pub const VV_CORR_REV: &str = "vv_corr_rev";
 pub const VV_CORR_REV_PLUS_NEXT: &str = "vv_corr_plus_next_rev";
+pub const VA_CORR_REV: &str = "va_corr_rev";
+pub const AA_CORR: &str = "aa_corr";
 pub const XDU_CORR: &str = "xdu_corr";
 pub const VDU_CORR: &str = "vdu_corr";
+pub const ADU_CORR: &str = "adu_corr";
 pub const VDU_CORR_CUMSUM: &str = "vdu_corr_cumsum";
 
 // Convert a rustacuda::error::CudaError and cublas::Error to a PyResult
@@ -44,6 +47,7 @@ pub struct KernelCuda {
     corrs: HashMap<&'static str, DeviceBuffer<f64>>,
     dt: f64,
     mass: Option<f64>,
+    vv_corr_0: Option<f64>,
     len_data: usize,
     dot: DeviceBox<f64>,
     // cuda stuff the order matters, probably because it translates
@@ -99,6 +103,7 @@ impl KernelCuda {
             dot: into_pyresult(DeviceBox::new(&0.0))?,
             dt,
             mass,
+            vv_corr_0: None,
             len_data,
             module,
             stream,
@@ -110,12 +115,15 @@ impl KernelCuda {
     fn get_len(corrs: &HashMap<&'static str, ArrayView1<f64>>) -> PyResult<usize> {
         match corrs.get(VV_CORR_REV) {
             Some(d) => Ok(d.len()),
-            None => {
-                return Err(PyValueError::new_err(format!(
-                    "Correlation function {} not found while trying to compute 'len_data'",
-                    VV_CORR_REV
-                )))
-            }
+            None => match corrs.get(VA_CORR_REV) {
+                Some(d) => return Ok(d.len()),
+                None => {
+                    return Err(PyValueError::new_err(format!(
+                        "{} or {} not found while trying to compute 'len_data'",
+                        VV_CORR_REV, VA_CORR_REV
+                    )))
+                }
+            },
         }
     }
 
@@ -124,6 +132,17 @@ impl KernelCuda {
             Some(m) => Ok(m),
             None => Err(PyValueError::new_err("mass in KernelCuda is None")),
         }
+    }
+
+    fn get_vv_corr_0(&self) -> PyResult<f64> {
+        match self.vv_corr_0 {
+            Some(vv) => Ok(vv),
+            None => Err(PyValueError::new_err("vv_corr_0 in KernelCuda is None")),
+        }
+    }
+
+    pub fn set_vv_corr_0(&mut self, vv_corr_0: f64) {
+        self.vv_corr_0 = Some(vv_corr_0);
     }
 
     pub fn g_method_xdu_nomass(&mut self) -> PyResult<()> {
@@ -137,11 +156,9 @@ impl KernelCuda {
                 cublas_sys::cublasDdot_v2(
                     *self.cublas_context.id_c(),
                     i as i32,
-                    self.kernel.as_device_ptr().as_raw(),
+                    self.kernel.as_device_ptr().as_raw().offset(1),
                     1i32,
-                    vv_corr_rev
-                        .as_raw()
-                        .offset((self.len_data - i - 1) as isize),
+                    vv_corr_rev.as_raw().offset((self.len_data - i) as isize),
                     1i32,
                     self.dot.as_device_ptr().as_raw_mut(),
                 );
@@ -176,11 +193,9 @@ impl KernelCuda {
                 cublas_sys::cublasDdot_v2(
                     *self.cublas_context.id_c(),
                     i as i32,
-                    self.kernel.as_device_ptr().as_raw(),
+                    self.kernel.as_device_ptr().as_raw().offset(1),
                     1i32,
-                    vv_corr_rev
-                        .as_raw()
-                        .offset((self.len_data - i - 1) as isize),
+                    vv_corr_rev.as_raw().offset((self.len_data - i) as isize),
                     1i32,
                     self.dot.as_device_ptr().as_raw_mut(),
                 );
@@ -211,6 +226,9 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
         let vv_corr_plus_next_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV_PLUS_NEXT)?;
+        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
+        bar.set_message("Computing kernel g_method_xdu_halfstep");
+        bar.set_prefix("G_method Cxdu Halfstep");
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             // We have to keep in mind that len belongs to the lenght of vv_corr_rev, which is
@@ -219,11 +237,11 @@ impl KernelCuda {
                 cublas_sys::cublasDdot_v2(
                     *self.cublas_context.id_c(),
                     i as i32,
-                    self.kernel.as_device_ptr().as_raw(),
+                    self.kernel.as_device_ptr().as_raw().offset(1),
                     1i32,
                     vv_corr_plus_next_rev
                         .as_raw()
-                        .offset((self.len_data - i - 2) as isize),
+                        .offset((self.len_data - i - 1) as isize),
                     1i32,
                     self.dot.as_device_ptr().as_raw_mut(),
                 );
@@ -244,7 +262,9 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
+            bar.inc(1);
         }
+        bar.finish();
         Ok(())
     }
 
@@ -254,17 +274,18 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let vdu_corr = get_device_pointer(&mut self.corrs, VDU_CORR)?;
         let vdu_corr_cumsum = get_device_pointer(&mut self.corrs, VDU_CORR_CUMSUM)?;
+        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
+        bar.set_message("Computing kernel g_method_vdu");
+        bar.set_prefix("G_method Vdu");
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
                 cublas_sys::cublasDdot_v2(
                     *self.cublas_context.id_c(),
                     i as i32,
-                    self.kernel.as_device_ptr().as_raw(),
+                    self.kernel.as_device_ptr().as_raw().offset(1),
                     1i32,
-                    vv_corr_rev
-                        .as_raw()
-                        .offset((self.len_data - i - 1) as isize),
+                    vv_corr_rev.as_raw().offset((self.len_data - i) as isize),
                     1i32,
                     self.dot.as_device_ptr().as_raw_mut(),
                 );
@@ -286,7 +307,57 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
+            bar.inc(1);
         }
+        bar.finish();
+        Ok(())
+    }
+
+    pub fn gamma_method(&mut self) -> PyResult<()> {
+        let module = &self.module;
+        let stream = &self.stream;
+        let va_corr_rev = get_device_pointer(&mut self.corrs, VA_CORR_REV)?;
+        let aa_corr = get_device_pointer(&mut self.corrs, AA_CORR)?;
+        let adu_corr = get_device_pointer(&mut self.corrs, ADU_CORR)?;
+        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
+        bar.set_message("Computing kernel gamma_method");
+        bar.set_prefix("Gamma_method");
+        for i in 0..self.kernel.len() {
+            // compute the convolution via dot of cublas
+            if i > 0 {
+                unsafe {
+                    cublas_sys::cublasDdot_v2(
+                        *self.cublas_context.id_c(),
+                        i as i32,
+                        self.kernel.as_device_ptr().as_raw().offset(1),
+                        1i32,
+                        va_corr_rev.as_raw().offset((self.len_data - i) as isize),
+                        1i32,
+                        self.dot.as_device_ptr().as_raw_mut(),
+                    );
+                }
+            }
+            unsafe {
+                // compute the kernel at time i * dt using the precomputed convolution
+                into_pyresult(
+                    launch!(module.kernel_step_gamma_method_double<<<1, 1, 0, stream>>>(
+                        self.dot.as_device_ptr(),
+                        self.kernel.as_device_ptr(),
+                        va_corr_rev,
+                        aa_corr,
+                        adu_corr,
+                        self.get_vv_corr_0()?,
+                        self.get_mass()?,
+                        self.dt,
+                        i,
+                        self.len_data
+                    )),
+                )?;
+                into_pyresult(stream.synchronize())?;
+            }
+            bar.inc(1);
+        }
+        bar.finish();
         Ok(())
     }
 

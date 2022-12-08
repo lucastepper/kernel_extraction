@@ -8,6 +8,7 @@ from .kernel_extraction import (
     g_method_xdu,
     g_method_xdu_nomass,
     g_method_xdu_halfstep,
+    gamma_method,
 )
 
 
@@ -37,6 +38,14 @@ def get_nbins(corrs: dict[str, np.ndarray], warn_if_more: int = 1000) -> int:
             return item.shape[1]
 
 
+def get_trunc(trunc, corrs):
+    """ Choose trunc to be the length given or the length of the shortest
+    correlation. Does not check which correlations are actually used. """
+    for key, item in corrs.items():
+        if "corr" in key:
+            trunc = min(trunc, len(item))
+    return trunc
+
 class ExtractionMethod(Enum):
     """
     Enum for the different kernel extraction methods that this module provides.
@@ -53,6 +62,7 @@ class ExtractionMethod(Enum):
     G_METHOD_XDU_NOMASS = "g_method_xdu_nomass"
     G_METHOD_XDU_HALFSTEP = "g_method_xdu_halfstep"
     G_METHOD_VDU = "g_method_vdu"
+    GAMMA_METHOD = "gamma_method"
 
     def __str__(self):
         return self.value
@@ -103,6 +113,17 @@ def compute_kernel(
             trunc,
             device,
         )
+    if extraction_method == ExtractionMethod.GAMMA_METHOD:
+        return gamma_method(
+            get_corr(corrs, "vv_corr", idx_bin),
+            get_corr(corrs, "va_corr", idx_bin),
+            get_corr(corrs, "aa_corr", idx_bin),
+            get_corr(corrs, "adu_corr", idx_bin),
+            dt,
+            check_mass(mass),
+            trunc,
+            device,
+        )
 
 
 def compute_kernel_2d(
@@ -132,7 +153,7 @@ def compute_kernel_2d(
             # equation can be derived. Rescale kernel after extraction
             item = item / mass.reshape(1, -1)
         corrs[key] = item
-    trunc = min(trunc, len(corrs["vv_corr"]), len(corrs["vdu_corr"]))
+    trunc = get_trunc(trunc, corrs)
     nbins = get_nbins(corrs)
     kernel = np.zeros((trunc, nbins))
     bar = tqdm.tqdm(desc=f"{extraction_method}", disable=not verbose, total=len(mass), leave=False)

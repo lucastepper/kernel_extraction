@@ -44,3 +44,19 @@ __global__ void kernel_step_g_method_vdu_double(
             - 2.0 * conv[0]
         );
 }
+
+extern "C"
+__global__ void kernel_step_gamma_method_double(
+    double *conv, double *kernel, double *va_corr_rev, double *aa_corr,
+    double *adu_corr, double vv_corr_0, double mass, double dt, int i, int len
+    ) {
+        if (i == 0) {
+            kernel[i] = (mass * aa_corr[0] + adu_corr[0]) / vv_corr_0;
+        } else {
+            kernel[i] = 1.0 / (vv_corr_0 + va_corr_rev[len - 1] * dt * 0.5) * (
+                mass * aa_corr[i] + adu_corr[i]
+                - 0.5 * dt * va_corr_rev[len - 1 - i] * kernel[0]
+                - dt * conv[0]
+            );
+        }
+}
