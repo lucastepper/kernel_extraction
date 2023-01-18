@@ -187,6 +187,9 @@ impl KernelCuda {
         let stream = &self.stream;
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
+        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
+        bar.set_message("Computing kernel g_method_xdu_halfstep");
+        bar.set_prefix("G_method Cxdu Halfstep");
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
@@ -216,6 +219,7 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
+            bar.inc(1);
         }
         Ok(())
     }
