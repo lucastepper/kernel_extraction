@@ -6,8 +6,12 @@ from numba import njit
 from scipy.integrate import cumtrapz
 
 
+class Kernel:
+    """Marker class."""
+
+
 @dataclass
-class RefKernelExponential:
+class RefKernelExponential(Kernel):
     """
     Exponential Reference kernel for a Markovian embedding.
     Gamma(t) = sum_i k_i exp(-t / tau_i), with tau_i = gamma_i / k_i
@@ -18,7 +22,7 @@ class RefKernelExponential:
 
     @classmethod
     def from_params(cls, gammas, ks, taus):
-        """ Create from parameters, check that the right ones are not None. """
+        """Create from parameters, check that the right ones are not None."""
         if gammas is None:
             gammas = np.array([])
             ks = np.array([])
@@ -37,11 +41,11 @@ class RefKernelExponential:
 
     @classmethod
     def from_gammas_ks(cls, gammas, ks):
-        """ Create from gammas and ks, no checks. """
+        """Create from gammas and ks, no checks."""
         return cls(gammas, ks)
 
     def get_kernel(self, time):
-        """ Compute the analytical kernel. """
+        """Compute the analytical kernel."""
         kernel = np.zeros_like(time)
         for gamma, k in zip(self.gammas, self.ks):
             tau = gamma / k
@@ -49,7 +53,7 @@ class RefKernelExponential:
         return kernel
 
     def get_kernel_int(self, time):
-        """ Compute the analytical running integral over the kernel. """
+        """Compute the analytical running integral over the kernel."""
         kernel_int = np.zeros_like(time)
         for gamma, k in zip(self.gammas, self.ks):
             tau = gamma / k
@@ -57,7 +61,69 @@ class RefKernelExponential:
         return kernel_int
 
     def plot(self, time, axes=None, color="black", ls="--", label="ref", **kwargs):
-        """ Add plot of the kernel and its integral to the given axes. """
+        """Add plot of the kernel and its integral to the given axes."""
+        if axes is None:
+            _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+        axes[0].plot(time, self.get_kernel(time), color=color, ls=ls, label=label, **kwargs)
+        axes[1].plot(time, self.get_kernel_int(time), color=color, ls=ls, label=label, **kwargs)
+        return axes
+
+
+@dataclass
+class RefKernelOscillating(Kernel):
+    """
+    Oscillating, exponentially decaying Reference kernel for a Markovian embedding.
+    Gamma(t) = sum_i k_i exp(-t / tau_i) (cos(omega_i t) + 1 / (tau_i omega_i) sin(omega_i t))
+    Internally, we store the simulation parameters.
+    """
+
+    gammas: np.ndarray
+    ks: np.ndarray
+    masses: np.ndarray
+
+    @classmethod
+    def from_fit_params(cls, ks, taus, omegas):
+        """Create from the fit parameters."""
+        if len(ks) != len(taus) != len(omegas):
+            raise ValueError(
+                "ks, taus, omegas must have the same length, "
+                f"but have lengths {len(ks)=}, {len(taus)=} and {len(omegas)=}."
+            )
+        masses = ks / (omegas**2 + 1 / taus**2)
+        gammas = 2 * masses / taus
+        return cls(gammas, ks, masses)
+
+    def get_fit_params(self):
+        """Return the fit parameters."""
+        taus = 2 * self.masses / self.gammas
+        omegas = np.sqrt(self.ks / self.masses - 1 / taus**2)
+        return self.ks, taus, omegas
+
+    def get_kernel(self, time):
+        """Compute the analytical kernel."""
+        ks, taus, omegas = self.get_fit_params()
+        kernel = np.zeros_like(time)
+        for i in range(len(taus)):
+            kernel += (
+                ks[i]
+                * np.exp(-time / taus[i])
+                * (np.cos(omegas[i] * time) + 1 / (taus[i] * omegas[i]) * np.sin(omegas[i] * time))
+            )
+        return kernel
+
+    def get_kernel_int(self, time):
+        """Compute the analytical running integral over the kernel."""
+        ks, taus, omegas = self.get_fit_params()
+        kernel_int = np.zeros_like(time)
+        for i in range(len(taus)):
+            kernel_int += self.gammas[i] + ks[i] * np.exp(-time / taus[i]) * (
+                (taus[i] ** 2 * omegas[i] ** 2 - 1) * np.sin(omegas[i] * time)
+                - 2 * taus[i] * omegas[i] * np.cos(omegas[i] * time)
+            ) / (taus[i] ** 2 * omegas[i] ** 3 + omegas[i])
+        return kernel_int
+
+    def plot(self, time, axes=None, color="black", ls="--", label="ref", **kwargs):
+        """Add plot of the kernel and its integral to the given axes."""
         if axes is None:
             _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
         axes[0].plot(time, self.get_kernel(time), color=color, ls=ls, label=label, **kwargs)
@@ -75,31 +141,31 @@ class Kernel:
     dt: float
     kernel: np.ndarray
     kernel_int: np.ndarray
-    kernel_ref: Optional[RefKernelExponential] = None
+    kernel_ref: Optional[Kernel] = None
 
     @classmethod
-    def from_kernel(cls, kernel, dt):
-        """ Compute the running integral from the kernel. """
+    def from_kernel(cls, kernel, dt, ref_kernel=None):
+        """Compute the running integral from the kernel."""
         kernel_int = cumtrapz(kernel, dx=dt, initial=0)
-        return cls(dt, kernel, kernel_int)
+        return cls(dt, kernel, kernel_int, ref_kernel)
 
     @classmethod
-    def from_kernel_int(cls, kernel_int, dt, halfstep=False):
-        """ Compute the kernel from its running integral via numerical gradeint. """
+    def from_kernel_int(cls, kernel_int, dt, halfstep=False, ref_kernel=None):
+        """Compute the kernel from its running integral via numerical gradeint."""
         kernel = np.gradient(kernel_int, dt)
         if halfstep:
             # When using halfstep method, first frame is G_0, then G_0.5, G_1.5 ...
             # We need to correct the gradient of the first two frames accordingly
             kernel[0] = (kernel_int[1] - kernel_int[0]) / (0.5 * dt)
             kernel[1] = (kernel_int[2] - kernel_int[0]) / (1.5 * dt)
-        return cls(dt, kernel, kernel_int)
+        return cls(dt, kernel, kernel_int, ref_kernel)
 
     def set_params_kernel_ref(self, gammas=None, ks=None, taus=None):
-        """ Set the reference kernel parameters, to allow plotting it. """
+        """Set the reference kernel parameters, to allow plotting it."""
         self.kernel_ref = RefKernelExponential.from_params(gammas, ks, taus)
 
     def plot(self, axes=None, end=None, logx_kernel=True, logx_kernel_int=False, **kwargs):
-        """ Plot the kernel and its integral. If set, also plot the reference kernel. """
+        """Plot the kernel and its integral. If set, also plot the reference kernel."""
         if axes is None:
             _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
         if end is None:
@@ -125,7 +191,9 @@ class Kernel2D:
     Handles computation and plotting. Assummes kernel (ncorr, nbins).
     """
 
-    def __init__(self, dt=None, kernel=None, kernel_integral=None, cache=True, bins=None, fe=None) -> None:
+    def __init__(
+        self, dt=None, kernel=None, kernel_integral=None, cache=True, bins=None, fe=None
+    ) -> None:
         if not isinstance(dt, (float, int)):
             raise TypeError(f"Dt needs to be float or int.")
         if kernel is None and kernel_integral is None:
@@ -208,7 +276,7 @@ class Kernel2D:
         return self.sm
 
     def get_averaged(self, obs: np.ndarray, range_obs: tuple[float] = (-np.inf, np.inf)):
-        """ Compute a purely time-dependent observable averaged by averaging
+        """Compute a purely time-dependent observable averaged by averaging
         over all bins for an observable that depends on time and space.
         Expects bins and free energy to be in self.
         obs: (ncorr, nbins): data to be averaged
@@ -230,7 +298,9 @@ class Kernel2D:
             bins = np.arange(self.nbins)
         sm = self.get_sm(self.values[0], self.values[-1])
         for ibin in bins:
-            axes[0].plot(self.time[:-1], self.kernel[:-1, int(ibin)], color=sm.to_rgba(self.values[ibin]))
+            axes[0].plot(
+                self.time[:-1], self.kernel[:-1, int(ibin)], color=sm.to_rgba(self.values[ibin])
+            )
             axes[1].plot(
                 self.time, self.kernel_integral[:, int(ibin)], color=sm.to_rgba(self.values[ibin])
             )
@@ -249,13 +319,13 @@ class Kernel2D:
             bins = np.arange(0, self.nbins, 1.0)
         for icorr in tcorrs:
             axes[0].plot(bins, self.kernel[int(icorr)], color=sm.to_rgba(self.dt * icorr))
-            axes[1].plot(
-                bins, self.kernel_integral[int(icorr)], color=sm.to_rgba(self.dt * icorr)
-            )
+            axes[1].plot(bins, self.kernel_integral[int(icorr)], color=sm.to_rgba(self.dt * icorr))
         plt.colorbar(sm, ax=axes[1], label="$t$ [ps]")
         return axes
 
-    def plot_averaged(self, axes=None, kernel_ref=None, kernel_int_ref=None, range_obs=(-np.inf, np.inf)):
+    def plot_averaged(
+        self, axes=None, kernel_ref=None, kernel_int_ref=None, range_obs=(-np.inf, np.inf)
+    ):
         if kernel_ref is not None and kernel_int_ref is None:
             kernel_int_ref = cumtrapz(kernel_ref, dx=self.dt, axis=0, initial=0.0)
         if kernel_int_ref is not None and kernel_ref is None:
@@ -265,6 +335,8 @@ class Kernel2D:
         axes[0].semilogx(self.time[:-1], self.get_averaged(self.kernel, range_obs)[:-1])
         axes[1].plot(self.time, self.get_averaged(self.kernel_integral, range_obs))
         if kernel_ref is not None and kernel_int_ref is not None:
-            axes[0].semilogx(self.time[:-1], kernel_ref[:len(self.time) - 1], color="black", linestyle="--")
-            axes[1].plot(self.time, kernel_int_ref[:len(self.time)], color="black", linestyle="--")
+            axes[0].semilogx(
+                self.time[:-1], kernel_ref[: len(self.time) - 1], color="black", linestyle="--"
+            )
+            axes[1].plot(self.time, kernel_int_ref[: len(self.time)], color="black", linestyle="--")
         return axes
