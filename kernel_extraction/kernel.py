@@ -2,133 +2,8 @@ from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
-from numba import njit
 from scipy.integrate import cumtrapz
-
-
-class Kernel:
-    """Marker class."""
-
-
-@dataclass
-class RefKernelExponential(Kernel):
-    """
-    Exponential Reference kernel for a Markovian embedding.
-    Gamma(t) = sum_i k_i exp(-t / tau_i), with tau_i = gamma_i / k_i
-    """
-
-    gammas: np.ndarray
-    ks: np.ndarray
-
-    @classmethod
-    def from_params(cls, gammas, ks, taus):
-        """Create from parameters, check that the right ones are not None."""
-        if gammas is None:
-            gammas = np.array([])
-            ks = np.array([])
-        elif ks is None and taus is not None:
-            ks = gammas / taus
-        elif ks is not None:
-            ks = np.asarray(ks)
-        else:
-            raise ValueError("Either ks or taus must be provided if gammas is provided")
-        if len(gammas) != len(ks):
-            raise ValueError(
-                "gammas and ks must have the same length, "
-                f"but have lengths {len(gammas)} and {len(ks)}"
-            )
-        return cls(gammas, ks)
-
-    @classmethod
-    def from_gammas_ks(cls, gammas, ks):
-        """Create from gammas and ks, no checks."""
-        return cls(gammas, ks)
-
-    def get_kernel(self, time):
-        """Compute the analytical kernel."""
-        kernel = np.zeros_like(time)
-        for gamma, k in zip(self.gammas, self.ks):
-            tau = gamma / k
-            kernel += k * np.exp(-time / tau)
-        return kernel
-
-    def get_kernel_int(self, time):
-        """Compute the analytical running integral over the kernel."""
-        kernel_int = np.zeros_like(time)
-        for gamma, k in zip(self.gammas, self.ks):
-            tau = gamma / k
-            kernel_int += gamma * (1 - np.exp(-time / tau))
-        return kernel_int
-
-    def plot(self, time, axes=None, color="black", ls="--", label="ref", **kwargs):
-        """Add plot of the kernel and its integral to the given axes."""
-        if axes is None:
-            _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-        axes[0].plot(time, self.get_kernel(time), color=color, ls=ls, label=label, **kwargs)
-        axes[1].plot(time, self.get_kernel_int(time), color=color, ls=ls, label=label, **kwargs)
-        return axes
-
-
-@dataclass
-class RefKernelOscillating(Kernel):
-    """
-    Oscillating, exponentially decaying Reference kernel for a Markovian embedding.
-    Gamma(t) = sum_i k_i exp(-t / tau_i) (cos(omega_i t) + 1 / (tau_i omega_i) sin(omega_i t))
-    Internally, we store the simulation parameters.
-    """
-
-    gammas: np.ndarray
-    ks: np.ndarray
-    masses: np.ndarray
-
-    @classmethod
-    def from_fit_params(cls, ks, taus, omegas):
-        """Create from the fit parameters."""
-        if len(ks) != len(taus) != len(omegas):
-            raise ValueError(
-                "ks, taus, omegas must have the same length, "
-                f"but have lengths {len(ks)=}, {len(taus)=} and {len(omegas)=}."
-            )
-        masses = ks / (omegas**2 + 1 / taus**2)
-        gammas = 2 * masses / taus
-        return cls(gammas, ks, masses)
-
-    def get_fit_params(self):
-        """Return the fit parameters."""
-        taus = 2 * self.masses / self.gammas
-        omegas = np.sqrt(self.ks / self.masses - 1 / taus**2)
-        return self.ks, taus, omegas
-
-    def get_kernel(self, time):
-        """Compute the analytical kernel."""
-        ks, taus, omegas = self.get_fit_params()
-        kernel = np.zeros_like(time)
-        for i in range(len(taus)):
-            kernel += (
-                ks[i]
-                * np.exp(-time / taus[i])
-                * (np.cos(omegas[i] * time) + 1 / (taus[i] * omegas[i]) * np.sin(omegas[i] * time))
-            )
-        return kernel
-
-    def get_kernel_int(self, time):
-        """Compute the analytical running integral over the kernel."""
-        ks, taus, omegas = self.get_fit_params()
-        kernel_int = np.zeros_like(time)
-        for i in range(len(taus)):
-            kernel_int += self.gammas[i] + ks[i] * np.exp(-time / taus[i]) * (
-                (taus[i] ** 2 * omegas[i] ** 2 - 1) * np.sin(omegas[i] * time)
-                - 2 * taus[i] * omegas[i] * np.cos(omegas[i] * time)
-            ) / (taus[i] ** 2 * omegas[i] ** 3 + omegas[i])
-        return kernel_int
-
-    def plot(self, time, axes=None, color="black", ls="--", label="ref", **kwargs):
-        """Add plot of the kernel and its integral to the given axes."""
-        if axes is None:
-            _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-        axes[0].plot(time, self.get_kernel(time), color=color, ls=ls, label=label, **kwargs)
-        axes[1].plot(time, self.get_kernel_int(time), color=color, ls=ls, label=label, **kwargs)
-        return axes
+from .ref_kernels import RefKernel
 
 
 @dataclass
@@ -141,7 +16,7 @@ class Kernel:
     dt: float
     kernel: np.ndarray
     kernel_int: np.ndarray
-    kernel_ref: Optional[Kernel] = None
+    kernel_ref: Optional[RefKernel] = None
 
     @classmethod
     def from_kernel(cls, kernel, dt, ref_kernel=None):
@@ -159,10 +34,6 @@ class Kernel:
             kernel[0] = (kernel_int[1] - kernel_int[0]) / (0.5 * dt)
             kernel[1] = (kernel_int[2] - kernel_int[0]) / (1.5 * dt)
         return cls(dt, kernel, kernel_int, ref_kernel)
-
-    def set_params_kernel_ref(self, gammas=None, ks=None, taus=None):
-        """Set the reference kernel parameters, to allow plotting it."""
-        self.kernel_ref = RefKernelExponential.from_params(gammas, ks, taus)
 
     def plot(self, axes=None, end=None, logx_kernel=True, logx_kernel_int=False, **kwargs):
         """Plot the kernel and its integral. If set, also plot the reference kernel."""
