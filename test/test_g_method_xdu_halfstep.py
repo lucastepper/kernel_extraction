@@ -5,6 +5,7 @@ import pytest
 import utils
 import kernel_extraction
 
+SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
 
 def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
     """Gmethod with external potential, evaluating kernel at half steps."""
@@ -36,6 +37,8 @@ def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_g_method_xdu_halfstep(device):
     """Test extraction method versus reference implementation."""
+    if device == "cuda" and SKIPCUDA:
+        pytest.skip("Skipping CUDA test")
     test_data = utils.load_test_data()
     # test that the length of the correlation functions is taken into account
     trunc = 2 * len(test_data.vv_corr)

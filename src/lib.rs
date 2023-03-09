@@ -1,5 +1,7 @@
 #[macro_use]
+#[cfg(feature = "cuda")]
 extern crate rustacuda;
+#[cfg(feature = "cuda")]
 mod kernel_cuda;
 use ndarray::{s, Array1, ArrayView1};
 use numpy::{IntoPyArray, PyArray1};
@@ -7,6 +9,7 @@ use packed_simd::f64x4;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
+#[cfg(feature = "cuda")]
 use std::collections::HashMap;
 
 enum Device {
@@ -25,6 +28,13 @@ impl Device {
                 )))
             }
         }
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    fn raise_cuda_error<'py>() -> PyResult<&'py PyArray1<f64>> {
+        return Err(PyValueError::new_err(
+            "Cuda not supported, please compile with feature cuda",
+        ));
     }
 }
 
@@ -89,6 +99,7 @@ fn g_method_xdu_nomass<'py>(
             }
             kernel_int
         }
+        #[cfg(feature = "cuda")]
         Device::Cuda => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
@@ -98,6 +109,8 @@ fn g_method_xdu_nomass<'py>(
             kernel_cuda.g_method_xdu_nomass()?;
             kernel_cuda.get_kernel()?
         }
+        #[cfg(not(feature = "cuda"))]
+        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -135,6 +148,8 @@ fn g_method_xdu<'py>(
             }
             kernel_int
         }
+
+        #[cfg(feature = "cuda")]
         Device::Cuda => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
@@ -144,6 +159,8 @@ fn g_method_xdu<'py>(
             kernel_cuda.g_method_xdu()?;
             kernel_cuda.get_kernel()?
         }
+        #[cfg(not(feature = "cuda"))]
+        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -187,6 +204,7 @@ fn g_method_xdu_halfstep<'py>(
             }
             kernel_int
         }
+        #[cfg(feature = "cuda")]
         Device::Cuda => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
@@ -200,6 +218,8 @@ fn g_method_xdu_halfstep<'py>(
             kernel_cuda.g_method_xdu_halfstep()?;
             kernel_cuda.get_kernel()?
         }
+        #[cfg(not(feature = "cuda"))]
+        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -225,7 +245,7 @@ fn g_method_vdu<'py>(
     // to streamline the computation of all terms for the trapezodial rule
     // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
     // where we set the first element to zero
-    let mut vdu_corr_cumsum = Array1::zeros(trunc);
+    let mut vdu_corr_cumsum: Array1<f64> = Array1::zeros(trunc);
     for i in 1..trunc {
         vdu_corr_cumsum[i] = vdu_corr_cumsum[i - 1] + vdu_corr[i];
     }
@@ -246,6 +266,7 @@ fn g_method_vdu<'py>(
             }
             kernel_int
         }
+        #[cfg(feature = "cuda")]
         Device::Cuda => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
@@ -256,6 +277,8 @@ fn g_method_vdu<'py>(
             kernel_cuda.g_method_vdu()?;
             kernel_cuda.get_kernel()?
         }
+        #[cfg(not(feature = "cuda"))]
+        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -307,6 +330,7 @@ fn gamma_method<'py>(
             }
             kernel
         }
+        #[cfg(feature = "cuda")]
         Device::Cuda => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VA_CORR_REV, va_corr_rev.view()),
@@ -318,6 +342,8 @@ fn gamma_method<'py>(
             kernel_cuda.gamma_method()?;
             kernel_cuda.get_kernel()?
         }
+        #[cfg(not(feature = "cuda"))]
+        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }

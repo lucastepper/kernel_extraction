@@ -5,6 +5,8 @@ import pytest
 import utils
 import kernel_extraction
 
+SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
+
 
 def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, loop=False):
     r"""This is an alternatice volterra method extracting the running integral
@@ -41,6 +43,8 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, loop=False):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_g_method_vdu(device):
     """Test extraction method versus reference implementation."""
+    if device == "cuda" and SKIPCUDA:
+        pytest.skip("Skipping CUDA test")
     test_data = utils.load_test_data()
     # test that the length of the correlation functions is taken into account
     trunc = 2 * len(test_data.vv_corr)
@@ -67,6 +71,8 @@ def test_g_method_vdu(device):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_g_method_vdu_2d(device):
     """Test extraction method versus reference implementation for fake 2d data. """
+    if device == "cuda" and SKIPCUDA:
+        pytest.skip("Skipping CUDA test")
     test_data = utils.load_test_data()
     kernel_i_ref = g_method_vdu(
         test_data.vv_corr, test_data.vdu_corr, test_data.dt, test_data.mass, len(test_data.vv_corr)

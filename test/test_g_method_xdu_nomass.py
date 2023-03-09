@@ -5,6 +5,8 @@ import pytest
 import utils
 import kernel_extraction
 
+SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
+
 
 def g_method_nomass(vv_corr, xdu_corr, dt, trunc):
     """Compute the integral over the kernel."""
@@ -22,19 +24,19 @@ def g_method_nomass(vv_corr, xdu_corr, dt, trunc):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_g_method_nomass(device):
     """Test extraction method versus reference implementation."""
+    if device == "cuda" and SKIPCUDA:
+        pytest.skip("Skipping CUDA test")
     test_data = utils.load_test_data()
     # test that the length of the correlation functions is taken into account
     trunc = 2 * len(test_data.vv_corr)
-    kernel_i_ref = g_method_nomass(
-        test_data.vv_corr, test_data.xdu_corr, test_data.dt, trunc
-    )
+    kernel_i_ref = g_method_nomass(test_data.vv_corr, test_data.xdu_corr, test_data.dt, trunc)
     kernel_i_test_1 = kernel_extraction.g_method_xdu_nomass(
         test_data.vv_corr, test_data.xdu_corr, test_data.dt, trunc, device
     )
     kernel_i_test_2 = kernel_extraction.compute_kernel(
         kernel_extraction.ExtractionMethod.G_METHOD_XDU_NOMASS,
         test_data.dt,
-        trunc = trunc,
+        trunc=trunc,
         device=device,
         vv_corr=test_data.vv_corr,
         xdu_corr=test_data.xdu_corr,

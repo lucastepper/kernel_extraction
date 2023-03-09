@@ -5,6 +5,7 @@ import pytest
 import utils
 import kernel_extraction
 
+SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
 
 def gamma_method(vv_corr, va_corr, af_corr, adu_corr, dt, trunc):
     """This is an alternatice volterra method extracting the memory kernel
@@ -36,6 +37,8 @@ def gamma_method(vv_corr, va_corr, af_corr, adu_corr, dt, trunc):
 @pytest.mark.parametrize("device", ["cpu", "cuda",],)
 def test_g_method_vdu(device):
     """Test extraction method versus reference implementation."""
+    if device == "cuda" and SKIPCUDA:
+        pytest.skip("Skipping CUDA test")
     test_data = utils.load_test_data()
     # test that the length of the correlation functions is taken into account
     trunc = 2 * len(test_data.vv_corr)
