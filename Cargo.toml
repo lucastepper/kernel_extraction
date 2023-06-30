@@ -25,6 +25,7 @@ version = "0.16.5"
 features = ["extension-module"]
 
 [features]
+default = ["cuda"]
 cuda = [
     "dep:rustacuda",
     "dep:rustacuda_core",
