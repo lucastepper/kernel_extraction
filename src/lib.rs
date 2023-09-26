@@ -5,7 +5,6 @@ extern crate rustacuda;
 mod kernel_cuda;
 use ndarray::{s, Array1, ArrayView1};
 use numpy::{IntoPyArray, PyArray1};
-use packed_simd::f64x4;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -39,29 +38,10 @@ impl Device {
 }
 
 /// Dot product of two vectors
-pub fn dot_prod_par_simd(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
+pub fn dot_prod_par(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
     let a = a.as_slice().unwrap();
     let b = b.as_slice().unwrap();
-    // code for avx_256 instructions, should probs require avx2
-    let max_len = a.len() / 4 * 4;
-    let remainder = a.len() % 4;
-    // iterate trough elements at a stride of 4
-    let mut dot_prod_simd = a[0..max_len]
-        .par_chunks_exact(4)
-        .map(f64x4::from_slice_unaligned)
-        .zip(
-            b[0..max_len]
-                .par_chunks_exact(4)
-                .map(f64x4::from_slice_unaligned),
-        )
-        .map(|(a, b)| a * b)
-        .sum::<f64x4>()
-        .sum();
-    // add the last elems, up to three, if len(a) / 4 != 0
-    for i in max_len..(max_len + remainder) {
-        dot_prod_simd += a[i] * b[i];
-    }
-    dot_prod_simd
+    a.par_iter().zip(b.par_iter()).map(|(a, b)| a * b).sum()
 }
 
 #[pyfunction]
@@ -87,7 +67,7 @@ fn g_method_xdu_nomass<'py>(
         Device::Cpu => {
             let mut kernel_int = Array1::zeros(trunc);
             for i in 1..trunc {
-                convolution = dot_prod_par_simd(
+                convolution = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
                 );
@@ -139,7 +119,7 @@ fn g_method_xdu<'py>(
             let mut kernel_int = Array1::zeros(trunc);
             let prefac = 2.0 / (dt * vv_corr_rev[len - 1]);
             for i in 1..trunc {
-                let conv = dot_prod_par_simd(
+                let conv = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
                 );
@@ -195,7 +175,7 @@ fn g_method_xdu_halfstep<'py>(
             for i in 1..trunc {
                 kernel_int[i] =
                     prefac_vv_corr * (mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]);
-                let conv = dot_prod_par_simd(
+                let conv = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_plus_next_rev.slice(s![(len - i)..(len - 1)]),
                 );
@@ -255,7 +235,7 @@ fn g_method_vdu<'py>(
             let mut kernel_int = Array1::zeros(trunc);
             let prefac = 1.0 / vv_corr[0];
             for i in 1..trunc {
-                let conv = dot_prod_par_simd(
+                let conv = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
                 );
@@ -319,7 +299,7 @@ fn gamma_method<'py>(
             let prefac = 1.0 / (vv_corr[0] + va_corr[0] * dt * 0.5);
             kernel[0] = (mass * aa_corr[0] + adu_corr[0]) / vv_corr[0];
             for i in 1..trunc {
-                let conv = dot_prod_par_simd(
+                let conv = dot_prod_par(
                     kernel.slice(s![1..i]),
                     va_corr_rev.slice(s![(len - i)..(len - 1)]),
                 );

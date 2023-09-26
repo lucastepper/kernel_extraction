@@ -58,10 +58,15 @@ pub struct KernelCuda {
     _cuda_context: Context,
 }
 impl KernelCuda {
-    fn arr_to_gpu(arr: ArrayView1<f64>) -> PyResult<DeviceBuffer<f64>> {
+    fn arr_to_gpu(arr: ArrayView1<f64>, name: &str) -> PyResult<DeviceBuffer<f64>> {
         let slice = match arr.as_slice() {
             Some(s) => s,
-            None => return Err(PyValueError::new_err("arr_to_gpu: empyt array")),
+            None => {
+                return Err(PyValueError::new_err(format!(
+                    "arr_to_gpu: empyt array with name {}",
+                    name
+                )))
+            }
         };
         Ok(into_pyresult(DeviceBuffer::from_slice(slice))?)
     }
@@ -94,7 +99,7 @@ impl KernelCuda {
         let len_data = KernelCuda::get_len(&corrs)?;
         let corrs = corrs
             .into_iter()
-            .map(|(k, v)| Ok((k, KernelCuda::arr_to_gpu(v)?)))
+            .map(|(k, v)| Ok((k, KernelCuda::arr_to_gpu(v, k)?)))
             .collect::<PyResult<HashMap<&'static str, DeviceBuffer<f64>>>>()?;
         // initialize output
         Ok(KernelCuda {

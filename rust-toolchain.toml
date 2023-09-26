@@ -1,5 +1,5 @@
 [toolchain]
-channel = "nightly"
+channel = "stable"
 target-cpu = "native"
 opt-level = 3
 debuginfo = 0
