@@ -59,16 +59,33 @@ pub struct KernelCuda {
 }
 impl KernelCuda {
     fn arr_to_gpu(arr: ArrayView1<f64>, name: &str) -> PyResult<DeviceBuffer<f64>> {
-        let slice = match arr.as_slice() {
-            Some(s) => s,
+        if arr.len() == 0 {
+            return Err(PyValueError::new_err(format!(
+                "arr_to_gpu: empyt array with name {}",
+                name
+            )));
+        }
+        if arr.strides()[0] == 1 {
+            match arr.as_slice() {
+                Some(s) => return Ok(into_pyresult(DeviceBuffer::from_slice(s))?),
+                None => {
+                    return Err(PyValueError::new_err(format!(
+                        "arr_to_gpu: Could not convert array with stride 1 into slice {}",
+                        name
+                    )))
+                }
+            };
+        };
+        let array = arr.to_owned();
+        match array.as_slice() {
+            Some(s) => Ok(into_pyresult(DeviceBuffer::from_slice(s))?),
             None => {
                 return Err(PyValueError::new_err(format!(
-                    "arr_to_gpu: empyt array with name {}",
+                    "arr_to_gpu: Could not convert array with stride > 1 into slice {}",
                     name
                 )))
             }
-        };
-        Ok(into_pyresult(DeviceBuffer::from_slice(slice))?)
+        }
     }
 
     // This is the full constructor, which needs to set all fields, expecting some to be None
