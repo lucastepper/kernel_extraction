@@ -7,6 +7,7 @@ import kernel_extraction
 
 SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
 
+
 def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
     """Gmethod with external potential, evaluating kernel at half steps."""
     trunc = np.min([len(vv_corr) - 1, len(xdu_corr) - 1, trunc])
@@ -52,7 +53,7 @@ def test_g_method_xdu_halfstep(device):
         kernel_extraction.ExtractionMethod.G_METHOD_XDU_HALFSTEP,
         test_data.dt,
         mass=test_data.mass,
-        trunc = trunc,
+        trunc=trunc,
         device=device,
         vv_corr=test_data.vv_corr,
         xdu_corr=test_data.xdu_corr,
@@ -77,7 +78,12 @@ def test_sim_data_g_method_xdu_halfstep():
     kernel_ref = kernel_extraction.RefKernelExponential.from_gammas_ks(
         test_data.gammas, test_data.ks
     )
-    np.testing.assert_allclose(kernel_obj.kernel, kernel_ref.get_kernel(time), rtol=0.5, atol=1e-2)
+    np.testing.assert_allclose(
+        kernel_obj.kernel,
+        kernel_ref.get_kernel(time[: len(kernel_obj.kernel)]),
+        rtol=0.5,
+        atol=1e-2,
+    )
     # plot
     if os.environ.get("PLOT") == "true":
         kernel_obj.set_params_kernel_ref(test_data.gammas, test_data.ks)

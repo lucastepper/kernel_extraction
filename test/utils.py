@@ -23,7 +23,7 @@ CORRS = ["vv_corr", "va_corr", "aa_corr", "xdu_corr", "vdu_corr", "adu_corr"]
 
 
 def get_test_dir() -> Path:
-    """ Make test executable from root or test dir. """
+    """Make test executable from root or test dir."""
     test_dir = Path(".").resolve()
     if test_dir.name != "test":
         test_dir = test_dir / "test"
@@ -73,11 +73,25 @@ class TestData:
             import gle_sim
             import correlation
 
-            config = gle_sim.check_config(CONFIG)
+            if CONFIG["force_type"] == "harmonic":
+                pmf = gle_sim.Harmonic(k=CONFIG["k"])
+            else:
+                raise NotImplementedError(f"force type {CONFIG['force_type']} not implemented")
+            kernel = gle_sim.Exponential(gammas=CONFIG["gammas"], ks=CONFIG["ks"])
+            config = gle_sim.get_config(
+                dt=CONFIG["dt"],
+                mass=CONFIG["mass"],
+                kbt=CONFIG["kbt"],
+                steps=CONFIG["steps"],
+                stride=CONFIG["stride"],
+                integrator=CONFIG["integrator"],
+                pmf=pmf,
+                kernel=kernel,
+            )
             traj = gle_sim.integrate(config)
-            vel = np.gradient(traj, config["dt"])
-            acc = np.gradient(vel, config["dt"])
-            du = gle_sim.du_dx(traj, config)
+            vel = np.gradient(traj, config.dt)
+            acc = np.gradient(vel, config.dt)
+            du = -gle_sim.get_force_pmf(config, traj)
             corrs["vv_corr"] = correlation.correlation(vel, vel, CONFIG["trunc"])
             corrs["va_corr"] = correlation.correlation(vel, acc, CONFIG["trunc"])
             corrs["aa_corr"] = correlation.correlation(acc, acc, CONFIG["trunc"])
