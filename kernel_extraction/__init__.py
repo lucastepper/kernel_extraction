@@ -13,7 +13,7 @@ from .ref_kernels import (
     RefKernel,
     RefKernelExponential,
     RefKernelOscillating,
-    RefKernelPosMemSplines,
+    RefKernelOscillatingPosMemSplines,
 )
 
 
@@ -28,7 +28,7 @@ __all__ = [
     "FitKernel",
     "RefKernelExponential",
     "RefKernelOscillating",
-    "RefKernelPosMemSplines",
+    "RefKernelOscillatingPosMemSplines",
     "g_method_xdu_halfstep",
     "g_method_xdu",
     "g_method_xdu_nomass",

@@ -168,7 +168,7 @@ class RefKernelOscillating(RefKernel):
         return axes
 
 
-class RefKernelPosMemSplines(RefKernel):
+class RefKernelOscillatingPosMemSplines(RefKernel):
     """
     Reference kernel for a Markovian embedding with position dependent memory.
     We use the zwanzig model, were the coupling between the auxiliary variable y and the
