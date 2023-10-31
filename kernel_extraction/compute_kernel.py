@@ -13,12 +13,14 @@ from .kernel_extraction import (
 
 
 def check_mass(mass: Optional[float]) -> float:
+    """ Check that mass is not None and return it."""
     if mass is None:
         raise ValueError("Method requires mass but it is None")
     return mass
 
 
 def get_corr(corrs: dict[str, np.ndarray], key: str, idx_bin: int) -> np.ndarray:
+    """ Get correlation from dict. If idx_bin is not None, extract that bin"""
     if key not in corrs:
         raise ValueError(f"Method requires correlation: {key}, not in corrs")
     if idx_bin is None:
@@ -36,6 +38,7 @@ def get_nbins(corrs: dict[str, np.ndarray], warn_if_more: int = 1000) -> int:
             if item.shape[1] > warn_if_more:
                 print(f"WARNING: Number of bins is {item.shape[1]}")
             return item.shape[1]
+    return None
 
 
 def get_trunc(trunc, corrs):
@@ -44,7 +47,9 @@ def get_trunc(trunc, corrs):
     for key, item in corrs.items():
         if "corr" in key:
             trunc = min(trunc, len(item))
-    return trunc
+            return trunc
+    raise ValueError("No correlation found in corrs, when looking for trunc")
+
 
 class ExtractionMethod(Enum):
     """
@@ -77,7 +82,21 @@ def compute_kernel(
     device: str = "cpu",
     **kwargs,
 ) -> np.ndarray:
-    corrs = {key: kwargs[key] for key in kwargs if "corr" in key}
+    """ Compute the kernel from correlations using Volterra equations.
+    Arguments:
+        extraction_method: Enum for the extraction method
+        dt (float): Time step
+        mass (float): Mass
+        trunc (int): Truncation length of the kernel, default len(corrs)
+        idx_bin (int): If 2d correlations and idx_bin is not None, extract kernel for that bin
+            using corr[:, idx_bin], else use corr[:], default None
+        device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
+            The correlation functions must be of shape (ntimes) or (ntimes, nbins), when idx_bin
+    Returns:
+        kernel (np.ndarray(trunc)): The kernel
+    """
+    corrs = {key: item for key, item in kwargs.items() if "corr" in key}
     if extraction_method == ExtractionMethod.G_METHOD_XDU:
         return g_method_xdu(
             get_corr(corrs, "vv_corr", idx_bin),
@@ -124,19 +143,33 @@ def compute_kernel(
             trunc,
             device,
         )
+    raise ValueError(f"Unknown extraction method: {extraction_method}")
 
 
 def compute_kernel_2d(
     extraction_method: ExtractionMethod,
     dt: float,
-    mass: Iterable = None,
+    mass: Optional[Iterable] = None,
     kbt: float = None,
     trunc: int = sys.maxsize,
-    idx_bin: int = None,
     device: str = "cpu",
     verbose=True,
     **kwargs,
 ) -> np.ndarray:
+    """ Compute the kernel for a 2d system from conditional correlations.
+    Arguments:
+        extraction_method: Enum for the extraction method
+        dt (float): Time step
+        mass (np.ndarray(nbins)): Mass as a function of the bin index
+        kbt (float): Thermal energy, Needed to compute mass from vv_corr if mass is None
+        trunc (int): Truncation length of the kernel, default len(corrs)
+        device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        verbose (bool): Show progress bar, default True
+        **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
+            The correlation functions must be of shape (ntimes, nbins)
+    Returns:
+        kernel (np.ndarray(trunc, nbins)): The kernel
+    """
     if mass is None:
         if kbt is None:
             raise ValueError("Method requires mass or kbt but both are None")
@@ -156,12 +189,12 @@ def compute_kernel_2d(
     trunc = get_trunc(trunc, corrs)
     nbins = get_nbins(corrs)
     kernel = np.zeros((trunc, nbins))
-    bar = tqdm.tqdm(desc=f"{extraction_method}", disable=not verbose, total=len(mass), leave=False)
-    for idx_bin, m in enumerate(mass):
+    pbar = tqdm.tqdm(desc=f"{extraction_method}", disable=not verbose, total=len(mass), leave=False)
+    for idxb, m in enumerate(mass):
         # Since we rescale kernel and potential by mass, we need to set mass to one
         # during extraction and then rescale after the extraction
-        kernel[:, idx_bin] = m * compute_kernel(
-            extraction_method, dt, mass=1.0, trunc=trunc, idx_bin=idx_bin, device=device, **corrs
+        kernel[:, idxb] = m * compute_kernel(
+            extraction_method, dt, mass=1.0, trunc=trunc, idx_bin=idxb, device=device, **corrs
         )
-        bar.update(1)
+        pbar.update(1)
     return kernel
