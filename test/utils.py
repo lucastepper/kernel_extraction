@@ -4,20 +4,19 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-# save all data from the simulation in temp and load it, if it exists
-CACHECORRS = True
 CONFIG = {
     "trunc": 1000,
     "dt": 0.002,
     "kbt": 2.494,
     "mass": 31.4,
-    "steps": int(5e7),
+    "steps": int(5e6),
     "stride": 1,
     "force_type": "harmonic",
     "integrator": "RungeKutta4",
     "gammas": [100.0, 200.0],
     "ks": [100.0, 1000.0],
     "k": 120.0,
+    "bins": 100,
 }
 CORRS = ["vv_corr", "va_corr", "aa_corr", "xdu_corr", "vdu_corr", "adu_corr"]
 
@@ -48,6 +47,8 @@ class TestData:
     traj: Optional[np.ndarray] = None
     gammas: Optional[np.ndarray] = None
     ks: Optional[np.ndarray] = None
+    kbt: Optional[float] = None
+    bins: Optional[int] = None
 
     @classmethod
     def load(cls):
@@ -64,47 +65,35 @@ class TestData:
     def simulate(cls):
         """Run GLE simulation and compute correlations."""
         (get_test_dir() / "data").mkdir(exist_ok=True)
-        temp_files = [get_test_dir() / f"data/{corr}.npy" for corr in CORRS]
-        if all(temp_file.exists() for temp_file in temp_files):
-            corrs = {corr: np.load(temp_file) for corr, temp_file in zip(CORRS, temp_files)}
-            traj = None
-        else:
-            corrs = {}
-            import gle_sim
-            import correlation
+        corrs = {}
+        import gle_sim
+        import correlation
 
-            if CONFIG["force_type"] == "harmonic":
-                pmf = gle_sim.Harmonic(k=CONFIG["k"])
-            else:
-                raise NotImplementedError(f"force type {CONFIG['force_type']} not implemented")
-            kernel = gle_sim.Exponential(gammas=CONFIG["gammas"], ks=CONFIG["ks"])
-            config = gle_sim.get_config(
-                dt=CONFIG["dt"],
-                mass=CONFIG["mass"],
-                kbt=CONFIG["kbt"],
-                steps=CONFIG["steps"],
-                stride=CONFIG["stride"],
-                integrator=CONFIG["integrator"],
-                pmf=pmf,
-                kernel=kernel,
-            )
-            traj = gle_sim.integrate(config)
-            vel = np.gradient(traj, config.dt)
-            acc = np.gradient(vel, config.dt)
-            du = -gle_sim.get_force_pmf(config, traj)
-            corrs["vv_corr"] = correlation.correlation(vel, vel, CONFIG["trunc"])
-            corrs["va_corr"] = correlation.correlation(vel, acc, CONFIG["trunc"])
-            corrs["aa_corr"] = correlation.correlation(acc, acc, CONFIG["trunc"])
-            corrs["xdu_corr"] = correlation.correlation(traj, du, CONFIG["trunc"])
-            corrs["vdu_corr"] = correlation.correlation(vel, du, CONFIG["trunc"])
-            corrs["adu_corr"] = correlation.correlation(acc, du, CONFIG["trunc"])
-            if CACHECORRS:
-                for key, item in corrs.items():
-                    to_save = get_test_dir() / f"data/{key}.npy"
-                    assert (
-                        to_save.name.replace(".npy", "") in CORRS
-                    ), f"please add {to_save=} to CORRS list"
-                    np.save(to_save, item)
+        if CONFIG["force_type"] == "harmonic":
+            pmf = gle_sim.Harmonic(k=CONFIG["k"])
+        else:
+            raise NotImplementedError(f"force type {CONFIG['force_type']} not implemented")
+        kernel = gle_sim.Exponential(gammas=CONFIG["gammas"], ks=CONFIG["ks"])
+        config = gle_sim.get_config(
+            dt=CONFIG["dt"],
+            mass=CONFIG["mass"],
+            kbt=CONFIG["kbt"],
+            steps=CONFIG["steps"],
+            stride=CONFIG["stride"],
+            integrator=CONFIG["integrator"],
+            pmf=pmf,
+            kernel=kernel,
+        )
+        traj = gle_sim.integrate(config)
+        vel = np.gradient(traj, config.dt)
+        acc = np.gradient(vel, config.dt)
+        du = -gle_sim.get_force_pmf(config, traj)
+        corrs["vv_corr"] = correlation.correlation(vel, vel, CONFIG["trunc"])
+        corrs["va_corr"] = correlation.correlation(vel, acc, CONFIG["trunc"])
+        corrs["aa_corr"] = correlation.correlation(acc, acc, CONFIG["trunc"])
+        corrs["xdu_corr"] = correlation.correlation(traj, du, CONFIG["trunc"])
+        corrs["vdu_corr"] = correlation.correlation(vel, du, CONFIG["trunc"])
+        corrs["adu_corr"] = correlation.correlation(acc, du, CONFIG["trunc"])
         return cls(
             **corrs,
             traj=traj,
@@ -113,6 +102,8 @@ class TestData:
             trunc=CONFIG["trunc"],
             gammas=CONFIG["gammas"],
             ks=CONFIG["ks"],
+            kbt=CONFIG["kbt"],
+            bins=CONFIG["bins"],
         )
 
 

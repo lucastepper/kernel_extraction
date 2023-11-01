@@ -1,4 +1,6 @@
-""" Run slow tests with: pytest --runslow. Tests need gle_sim and correlation modules. """
+""" Run slow tests with: pytest --runslow. Tests need gle_sim and correlation modules.
+"""
+import os
 import pytest
 
 
@@ -10,6 +12,10 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Add an option to run slow tests."""
     config.addinivalue_line("markers", "slow: mark test as slow to run")
+    if config.getoption("--runslow"):
+        os.environ["RUNSLOW"] = "true"
+    else:
+        os.environ["RUNSLOW"] = ""
 
 
 def pytest_collection_modifyitems(config, items):

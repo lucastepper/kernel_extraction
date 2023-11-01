@@ -156,6 +156,11 @@ fn g_method_xdu_halfstep<'py>(
     trunc: usize,
     device: String,
 ) -> PyResult<&'py PyArray1<f64>> {
+    println!(
+        "WARNING: I think g_method_xdu_halfstep still has an error in the derivation, something
+        with a 0.5 missing for one of the trapezodial boundaries or something like that.
+        Use this function at your own risk."
+    );
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
     let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));

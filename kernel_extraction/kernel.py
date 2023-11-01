@@ -210,7 +210,7 @@ class Kernel2D:
             #     nframes_obs = self.ends[idx_pos]
             # else:
             #     nframes_obs = np.sum(idxs_obs < self.ends[idx_pos])
-            mask[int(ends[idx_pos]):] = False
+            mask[int(ends[idx_pos]) :] = False
             obs_summed[mask] += weights[idx_pos] * obs[:, idx_pos][mask]
             weights_summed[: int(ends[idx_pos])] += weights[idx_pos]
         return obs_summed / weights_summed
@@ -312,9 +312,7 @@ class Kernel2D:
         axes[0].semilogx(
             self.time[:-1], self.get_averaged(self.kernel, range_obs)[:-1], label=label
         )
-        axes[1].plot(
-            self.time, self.get_averaged(self.kernel_integral, range_obs), label=label
-        )
+        axes[1].plot(self.time, self.get_averaged(self.kernel_integral, range_obs), label=label)
         if kernel_ref is not None and kernel_int_ref is not None:
             axes[0].semilogx(
                 *conv_func(self.time[:-1], kernel_ref[: len(self.time) - 1]),

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.integrate import cumtrapz
 from .compute_kernel import ExtractionMethod, compute_kernel
+
 # from kernel_extraction import ExtractionMethod, compute_kernel
 
 IMPORT_ERROR = False
@@ -58,7 +59,7 @@ class Result:
         if self._kernel_int is not None:
             return self._kernel_int
         if self._kernel is not None:
-            return cumtrapz(self._kernel, dx=self.dt, initial=0.)
+            return cumtrapz(self._kernel, dx=self.dt, initial=0.0)
         raise ValueError("No kernel found")
 
     @classmethod
@@ -166,6 +167,7 @@ def kernel_from_traj(
         if "du" in name:
             setattr(result, f"mean_{name}", corr_obj.mean_du.get_result())
     return result
+
 
 # import h5py
 # with h5py.File("/local_scratch/greedisgod/hb4.h5", "r") as f:
