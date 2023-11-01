@@ -1,8 +1,9 @@
 import sys
-import tqdm
-from typing import Iterable, Optional
-import numpy as np
 from enum import Enum
+from typing import Iterable, Optional
+import tqdm
+import numpy as np
+# pylint: disable=import-error
 from .kernel_extraction import (
     g_method_vdu,
     g_method_xdu,

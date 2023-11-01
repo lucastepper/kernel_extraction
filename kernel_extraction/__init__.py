@@ -15,6 +15,7 @@ from .ref_kernels import (
     RefKernelOscillating,
     RefKernelOscillatingPosMemSplines,
 )
+from .kernel_from_traj import Result, kernel_from_traj
 
 
 __all__ = [
@@ -34,4 +35,6 @@ __all__ = [
     "g_method_xdu_nomass",
     "g_method_vdu",
     "gamma_method",
+    "Result",
+    "kernel_from_traj",
 ]

@@ -52,7 +52,7 @@ class Kernel:
             axes[1].set_xscale("log")
         axes[0].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
         axes[1].set(xlabel=r"$t$ [ps]", ylabel=r"$G$ [u/ps]")
-        if self.kernel_ref:
+        if self.kernel_ref is not None:
             self.kernel_ref.plot(time, axes=axes)
         return axes
 
