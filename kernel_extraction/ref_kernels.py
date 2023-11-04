@@ -22,6 +22,10 @@ class RefKernel(ABC):
         """Compute the analytical running integral over the kernel."""
         raise NotImplementedError
 
+    def set_params(self, params: np.ndarray):
+        """Set the kernel parameters from a single array."""
+        raise NotImplementedError
+
 
 class RefKernelExponential(RefKernel):
     """
@@ -34,8 +38,13 @@ class RefKernelExponential(RefKernel):
         self.ks = ks
 
     @classmethod
-    def from_params(cls, gammas, ks, taus):
-        """Create from parameters, check that the right ones are not None."""
+    def from_gammas_ks_taus(
+        cls,
+        gammas: Optional[np.ndarray] = None,
+        ks: Optional[np.ndarray] = None,
+        taus: Optional[np.ndarray] = None,
+    ):
+        """Create from gammas, and either ks or taus."""
         if gammas is None:
             gammas = np.array([])
             ks = np.array([])
@@ -51,6 +60,11 @@ class RefKernelExponential(RefKernel):
                 f"but have lengths {len(gammas)} and {len(ks)}"
             )
         return cls(gammas, ks)
+
+    def set_params(self, params: np.ndarray):
+        """Set the kernel parameters from a single array."""
+        self.gammas = params[: len(params) // 2]
+        self.ks = params[len(params) // 2 :]
 
     @classmethod
     def from_gammas_ks(cls, gammas, ks):
@@ -96,67 +110,65 @@ class RefKernelOscillating(RefKernel):
     Internally, we store the simulation parameters.
     """
 
-    def __init__(self, ks: np.ndarray, taus: np.ndarray, omegas: np.ndarray) -> None:
+    def __init__(self, gammas: np.ndarray, ks: np.ndarray, masses: np.ndarray) -> None:
+        if len(gammas) != len(ks) != len(masses):
+            raise ValueError(
+                "gammas, ks, masses must have the same length, "
+                f"but have lengths {len(gammas)=}, {len(ks)=} and {len(masses)=}."
+            )
+        self.gammas = gammas
+        self.ks = ks
+        self.masses = masses
+
+    @classmethod
+    def from_ks_taus_omegas(cls, ks: np.ndarray, taus: np.ndarray, omegas: np.ndarray):
+        """Create from the fit parameters."""
         if len(ks) != len(taus) != len(omegas):
             raise ValueError(
                 "ks, taus, omegas must have the same length, "
                 f"but have lengths {len(ks)=}, {len(taus)=} and {len(omegas)=}."
             )
-        self.ks = ks
-        self.taus = taus
-        self.omegas = omegas
+        masses = ks / (omegas**2 + 1 / taus**2)
+        gammas = 2 * masses / taus
+        return cls(gammas, ks, masses)
 
-    @classmethod
-    def from_sim_params(cls, ks, gammas, masses):
-        """Create from the fit parameters."""
-        if len(ks) != len(gammas) != len(masses):
-            raise ValueError(
-                "ks, gammas, masses must have the same length, "
-                f"but have lengths {len(ks)=}, {len(gammas)=} and {len(masses)=}."
-            )
-        taus = 2 * masses / gammas
-        omegas = np.sqrt(ks / masses - 1 / taus**2)
-        return cls(ks, taus, omegas)
-
-    def get_sim_params(self, as_dict=False):
+    def get_ks_taus_omegas(self, as_dict: bool = False):
         """Return the fit parameters."""
-        masses = self.ks / (self.omegas**2 + 1 / self.taus**2)
-        gammas = 2 * masses / self.taus
+        taus = 2 * self.masses / self.gammas
+        omegas = np.sqrt(self.ks / self.masses - (0.5 * self.gammas / self.masses) ** 2)
         if as_dict:
-            return dict(ks=self.ks, gammas=gammas, masses=masses)
-        return self.ks, gammas, masses
+            return {"ks": self.ks, "taus": taus, "omegas": omegas}
+        return self.ks, taus, omegas
 
-    def set_from_array(self, array):
+    def set_params(self, params: np.ndarray):
         """Set the kernel parameters from a single array."""
-        if len(array) % 3 != 0:
+        if len(params) % 3 != 0:
             raise ValueError("The length or athe array must be divisible by 3.")
-        self.ks = array[: len(array) // 3]
-        self.taus = array[len(array) // 3 : 2 * len(array) // 3]
-        self.omegas = array[2 * len(array) // 3 :]
+        self.gammas = params[: len(params) // 3]
+        self.ks = params[len(params) // 3 : 2 * len(params) // 3]
+        self.masses = params[2 * len(params) // 3 :]
 
     def get_kernel(self, time):
         """Compute the analytical kernel."""
         kernel = np.zeros_like(time)
-        for i in range(len(self.taus)):
+        ks, taus, omegas = self.get_ks_taus_omegas()
+        for i in range(len(taus)):
             kernel += (
-                self.ks[i]
-                * np.exp(-time / self.taus[i])
-                * (
-                    np.cos(self.omegas[i] * time)
-                    + 1 / (self.taus[i] * self.omegas[i]) * np.sin(self.omegas[i] * time)
-                )
+                ks[i]
+                * np.exp(-time / taus[i])
+                * (np.cos(omegas[i] * time) + 1 / (taus[i] * omegas[i]) * np.sin(omegas[i] * time))
             )
         return kernel
 
     def get_kernel_int(self, time):
         """Compute the analytical running integral over the kernel."""
-        _ks, gammas, _masses = self.get_sim_params()
         kernel_int = np.zeros_like(time)
-        for i in range(len(self.taus)):
-            kernel_int += gammas[i] + self.ks[i] * np.exp(-time / self.taus[i]) * (
-                (self.taus[i] ** 2 * self.omegas[i] ** 2 - 1) * np.sin(self.omegas[i] * time)
-                - 2 * self.taus[i] * self.omegas[i] * np.cos(self.omegas[i] * time)
-            ) / (self.taus[i] ** 2 * self.omegas[i] ** 3 + self.omegas[i])
+        ks, taus, omegas = self.get_ks_taus_omegas()
+        for i in range(len(taus)):
+            kernel_int += self.gammas[i] + ks[i] * np.exp(-time / taus[i]) * (
+                (taus[i] ** 2 * omegas[i] ** 2 - 1) * np.sin(omegas[i] * time)
+                - 2 * taus[i] * omegas[i] * np.cos(omegas[i] * time)
+            ) / (taus[i] ** 2 * omegas[i] ** 3 + omegas[i])
         return kernel_int
 
     def plot(self, time, axes=None, color="black", ls="--", label="ref", **kwargs):
@@ -211,7 +223,7 @@ class RefKernelOscillatingPosMemSplines(RefKernel):
         self.check_length()
 
     def get_color(self, value: float):
-        """ Get the color map value for a given value, which could be time or position. """
+        """Get the color map value for a given value, which could be time or position."""
         if self.sm is None:
             raise ValueError("Need to call plot_vs_time or plot_vs_pos first.")
         return self.sm.to_rgba(value)
@@ -268,16 +280,17 @@ class RefKernelOscillatingPosMemSplines(RefKernel):
             }
         return self.ks, gammas, masses, self.xvals_alpha, self.yvals_alpha
 
-    def set_from_array(self, array: np.ndarray, naux: int):
+    def set_params(self, params: np.ndarray):
         """Set the kernel parameters from a single array."""
-        params_array = array[: 3 * naux]
-        nvals_alpha = int(len(array[3 * naux :]) / 2 / naux)
-        alpha_array = array[3 * naux :]
+        naux = len(self.xvals_alpha)
+        params_array = params[: 3 * naux]
+        nvals_alpha = int(len(params[3 * naux :]) / 2 / naux)
+        alpha_array = params[3 * naux :]
         if nvals_alpha < 2:
             raise ValueError(f"Need at least 2 nvals_alpha, but got {nvals_alpha}")
-        if not len(array) == 3 * params_array + 2 * params_array * nvals_alpha:
+        if not len(params) == 3 * params_array + 2 * params_array * nvals_alpha:
             raise ValueError(
-                f"Got {naux=}, {len(array)=} and computed {nvals_alpha=}. "
+                f"Got {naux=}, {len(params)=} and computed {nvals_alpha=}. "
                 "We need len(array) to be 3 * params_array + 2 * params_array * nvals_alpha."
             )
         self.ks = params_array[: naux // 3]
