@@ -36,24 +36,32 @@ class Kernel:
             kernel[1] = (kernel_int[2] - kernel_int[0]) / (1.5 * dt)
         return cls(dt, kernel, kernel_int, ref_kernel)
 
-    def plot(self, axes=None, end=None, logx_kernel=True, logx_kernel_int=False, **kwargs):
+    def plot(
+        self, axes=None, end=None, logx_kernel=True, logx_kernel_int=False, nsamples=None, **kwargs
+    ):
         """Plot the kernel and its integral. If set, also plot the reference kernel."""
         if axes is None:
             _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
         if end is None:
             end = len(self.kernel)
         time = np.arange(end) * self.dt
-        axes[0].plot(time, self.kernel[:end], **kwargs)
+        if nsamples is None:
+            conv_func = lambda x: (time, x)
+        else:
+            conv_func = lambda x: plot_utils.subsample_logspace(x, n=nsamples, dt=self.dt)
+        time_ker, kernel = conv_func(self.kernel[:end])
+        time_ker_int, kernel_int = conv_func(self.kernel_int[:end])
+        axes[0].plot(time_ker, kernel, **kwargs)
         if logx_kernel:
             axes[0].set_xscale("log")
-        axes[1].plot(time, self.kernel_int[:end], **kwargs)
+        axes[1].plot(time_ker_int, kernel_int, **kwargs)
         axes[0].set(xlabel=r"$t$ [ps]", ylabel=r"$\Gamma$ [u/ps$^{2}$]")
         if logx_kernel_int:
             axes[1].set_xscale("log")
         axes[0].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
         axes[1].set(xlabel=r"$t$ [ps]", ylabel=r"$G$ [u/ps]")
         if self.kernel_ref is not None:
-            self.kernel_ref.plot(time, axes=axes)
+            self.kernel_ref.plot(time_ker, axes=axes)
         return axes
 
 
