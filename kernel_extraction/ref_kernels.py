@@ -61,22 +61,18 @@ class RefKernelExponential(RefKernel):
             )
         return cls(gammas, ks)
 
-    def set_params(self, params: np.ndarray):
-        """Set the kernel parameters from a single array."""
-        self.gammas = params[: len(params) // 2]
-        self.ks = params[len(params) // 2 :]
-
     @classmethod
     def from_gammas_ks(cls, gammas, ks):
         """Create from gammas and ks, no checks."""
         return cls(gammas, ks)
 
-    def set_from_array(self, array):
+    def set_params(self, params):
         """Set the kernel parameters from a single array."""
-        if len(array) % 2 != 0:
-            raise ValueError("The array must have an even length")
-        self.gammas = array[: len(array) // 2]
-        self.ks = array[len(array) // 2 :]
+        if len(params) % 2 != 0:
+            raise ValueError("The params must have an even length")
+        naux = len(params) // 2
+        self.gammas = params[: naux]
+        self.ks = params[naux : 2 * naux]
 
     def get_kernel(self, time):
         """Compute the analytical kernel."""
@@ -141,12 +137,17 @@ class RefKernelOscillating(RefKernel):
         return self.ks, taus, omegas
 
     def set_params(self, params: np.ndarray):
-        """Set the kernel parameters from a single array."""
+        """Set the kernel parameters from a single array. It is way easier to have
+        meaningful parameters when setting them from ks,, taus, omegas, so we assume
+        that params = [ks, taus, omegas] and convert to gammas and masses internally."""
         if len(params) % 3 != 0:
             raise ValueError("The length or athe array must be divisible by 3.")
-        self.gammas = params[: len(params) // 3]
-        self.ks = params[len(params) // 3 : 2 * len(params) // 3]
-        self.masses = params[2 * len(params) // 3 :]
+        naux = len(params) // 3
+        self.ks = params[ : naux]
+        taus = params[naux : 2 * naux]
+        omegas = params[2 * naux : 3 * naux]
+        self.masses = self.ks / (omegas**2 + 1 / taus**2)
+        self.gammas = 2 * self.masses / taus
 
     def get_kernel(self, time):
         """Compute the analytical kernel."""
