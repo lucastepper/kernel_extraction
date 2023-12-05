@@ -150,9 +150,9 @@ def run_tests_slow(device, test_data, extraction_method):
     )
     # plot
     time = np.arange(test_data.trunc - 1) * test_data.dt
-    kernel_ref_obj = kernel_extraction.RefKernelExponential(
-        gammas=test_data.gammas, ks=test_data.ks
-    )
+    gammas = np.array(test_data.gammas)
+    taus = gammas / np.array(test_data.ks)
+    kernel_ref_obj = kernel_extraction.RefKernelExponential(gammas=gammas, taus=taus)
     if os.environ.get("PLOT") == "true":
         _fig, axes = plt.subplots(1, 2, figsize=(15, 5))
         axes[0].plot(time, kernel_ref_obj.get_kernel(time), label="ref")

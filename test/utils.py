@@ -73,7 +73,8 @@ class TestData:
             pmf = gle_sim.Harmonic(k=CONFIG["k"])
         else:
             raise NotImplementedError(f"force type {CONFIG['force_type']} not implemented")
-        kernel = gle_sim.Exponential(gammas=CONFIG["gammas"], ks=CONFIG["ks"])
+        taus = np.array(CONFIG["gammas"]) / np.array(CONFIG["ks"])
+        kernel = gle_sim.Exponential(gammas=CONFIG["gammas"], taus=taus)
         config = gle_sim.get_config(
             dt=CONFIG["dt"],
             mass=CONFIG["mass"],
