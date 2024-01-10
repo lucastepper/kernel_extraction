@@ -18,9 +18,7 @@ except ImportError:
 def check_imports():
     """Check if imports are available"""
     if IMPORT_ERROR:
-        raise ImportError(
-            "Could not import correlation and md_utils. Make sure they are installed"
-        )
+        raise ImportError("Could not import correlation and md_utils. Make sure they are installed")
 
 
 @dataclass
@@ -88,6 +86,7 @@ def kernel_from_traj(
     mass: Optional[float] = None,
     trunc: int = sys.maxsize,
     device: str = "cpu",
+    verbose: bool = True,
 ) -> Result:
     """Compute the kernel from trajectories using Volterra equations,
     first computing the correlations.
@@ -151,7 +150,9 @@ def kernel_from_traj(
         mass = kbt / corr_objs["vv_corr"].mean_vsqrd.get_result()
     # compute kernel
     corrs = {name: corr.get_result() for name, corr in corr_objs.items()}
-    ker = compute_kernel(extraction_method, dt, trunc=trunc, mass=mass, device=device, **corrs)
+    ker = compute_kernel(
+        extraction_method, dt, trunc=trunc, mass=mass, device=device, verbose=verbose, **corrs
+    )
     result = Result.default()
     if "g_method" in extraction_method.value:
         result.set_kernel(kernel_int=ker, kernel=None)
@@ -167,14 +168,3 @@ def kernel_from_traj(
         if "du" in name:
             setattr(result, f"mean_{name}", corr_obj.mean_du.get_result())
     return result
-
-
-# import h5py
-# with h5py.File("/local_scratch/greedisgod/hb4.h5", "r") as f:
-#     print(list(f.keys()))
-#     traj = np.array(f["hb4"][:10000])
-# dt = 1e-3
-# kbt = 2.494
-# result = kernel_from_traj(traj, ExtractionMethod.GAMMA_METHOD, dt, kbt, 200)
-# print(result.kernel_int)
-# print(result.kernel)

@@ -52,14 +52,16 @@ class FitKernel:
         if end_time_ker > len(data_ker) * dt:
             time_new = len(data_ker) * dt
             print(
-                f"WARNING: {len(data_ker) * dt=} is less than {end_time_ker=}, changing to {time_new=}."
+                f"WARNING: {len(data_ker) * dt=} is less than {end_time_ker=}, "
+                f"changing to {time_new=}."
             )
             end_time_ker = time_new
         time_ker = np.arange(0, end_time_ker, dt)
         if end_time_ker_int > len(data_ker_int) * dt:
             time_new = len(data_ker_int) * dt
             print(
-                f"WARNING: {len(data_ker_int) * dt=} is less than {end_time_ker_int=}, changing to {time_new=}."
+                f"WARNING: {len(data_ker_int) * dt=} is less than {end_time_ker_int=}, "
+                f"changing to {time_new=}."
             )
             end_time_ker_int = time_new
         time_ker_int = np.arange(0, end_time_ker_int, dt)

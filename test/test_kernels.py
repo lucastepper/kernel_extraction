@@ -15,7 +15,7 @@ CORRS_ARGS = {
 }
 
 
-def g_method_xdu(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
+def g_method_xdu(vv_corr, xdu_corr, dt, mass, trunc, loop=True, verbose=False):
     """Gmethod with external potential."""
     trunc = np.min([len(vv_corr), len(xdu_corr), trunc])
     kernel_i = np.zeros(trunc)
@@ -35,7 +35,7 @@ def g_method_xdu(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
     return kernel_i
 
 
-def g_method_xdu_nomass(vv_corr, xdu_corr, dt, trunc):
+def g_method_xdu_nomass(vv_corr, xdu_corr, dt, trunc, verbose=False):
     """Compute the integral over the kernel."""
     trunc = np.min([len(vv_corr), len(xdu_corr), trunc])
     kernel_i = np.zeros(trunc)
@@ -48,7 +48,7 @@ def g_method_xdu_nomass(vv_corr, xdu_corr, dt, trunc):
     return kernel_i
 
 
-def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
+def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True, verbose=False):
     """Gmethod with external potential, evaluating kernel at half steps."""
     trunc = np.min([len(vv_corr) - 1, len(xdu_corr) - 1, trunc])
     kernel_i = np.zeros(trunc)
@@ -75,7 +75,7 @@ def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True):
     return kernel_i
 
 
-def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc):
+def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, verbose=False):
     r"""This is an alternatice volterra method extracting the running integral
     over the memory kernel G(t), where the integral $\int_0^t ds C^{vdU}(s)$ is
     pulled into the convolution integral $\int_0^t ds G(t - s) C^{vv}(s)$ prior
@@ -87,6 +87,7 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc):
         mass (float): mass
         trunc (int): number of frames of G(t) to compute
         loop (bool): whether to loop to compute covolution integral
+        verbose (bool): argument not used, I just added it for consistency with the module to test
     """
     trunc = np.min([len(vv_corr), len(vdu_corr), trunc])
     kernel_int = np.zeros(trunc)
@@ -107,7 +108,7 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc):
     return kernel_int
 
 
-def gamma_method(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc):
+def gamma_method(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc, verbose=False):
     """This is an alternatice volterra method extracting the memory kernel
     $Gamma(t)$ directly. It is based on a volterra method of the second kind.
     Arguments:
@@ -118,6 +119,7 @@ def gamma_method(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc):
         dt (float): time step
         mass (float): mass
         trunc (int): number of frames of G(t) to compute
+        verbose (bool): argument not used, I just added it for consistency with the module to test
     """
     af_corr = mass * aa_corr
     trunc = np.min([len(vv_corr), len(va_corr), len(af_corr), len(adu_corr), trunc])
@@ -207,6 +209,7 @@ def test_kernel(method, device):
     trunc = 2 * len(test_data.vv_corr)
     test_data.trunc = trunc
     compute_ker_args = {arg: getattr(test_data, arg) for arg in CORRS_ARGS[method]}
+    compute_ker_args["verbose"] = False
     get_ref_corr = globals()[method]
     get_test_corr = getattr(kernel_extraction, method)
     kernel_i_ref = get_ref_corr(**compute_ker_args)

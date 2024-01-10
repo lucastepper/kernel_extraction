@@ -1,6 +1,7 @@
 #[cfg(test)]
 use cublas;
 use cublas_sys;
+use indicatif;
 use ndarray::{Array1, ArrayView1};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::PyResult;
@@ -41,11 +42,38 @@ fn get_device_pointer<T>(
         ))),
     }
 }
-
+pub struct Pbar {
+    bar: Option<indicatif::ProgressBar>,
+}
+impl Pbar {
+    pub fn new(verbose: bool, message: &'static str, prefix: &'static str, mut len_ker: u64) -> Self {
+        if verbose == false {
+            return Pbar { bar: None };
+        }
+        if len_ker > 1 {
+            len_ker -= 1;
+        };
+        let bar = indicatif::ProgressBar::new(len_ker);
+        bar.set_message(message);
+        bar.set_prefix(prefix);
+        Pbar { bar: Some(bar), }
+    }
+    pub fn increment(&mut self) {
+        if let Some(bar) = &self.bar {
+            bar.inc(1);
+        }
+    }
+    pub fn finish(&mut self) {
+        if let Some(bar) = &self.bar {
+            bar.finish();
+        }
+    }
+}
 pub struct KernelCuda {
     kernel: DeviceBuffer<f64>,
     corrs: HashMap<&'static str, DeviceBuffer<f64>>,
     dt: f64,
+    verbose: bool,
     mass: Option<f64>,
     vv_corr_0: Option<f64>,
     len_data: usize,
@@ -78,6 +106,7 @@ impl KernelCuda {
         dt: f64,
         mass: Option<f64>,
         trunc: usize,
+        verbose: bool,
     ) -> PyResult<KernelCuda> {
         // Initialize the CUDA API
         into_pyresult(rustacuda::init(CudaFlags::empty()))?;
@@ -107,6 +136,7 @@ impl KernelCuda {
             corrs,
             dot: into_pyresult(DeviceBox::new(&0.0))?,
             dt,
+            verbose,
             mass,
             vv_corr_0: None,
             len_data,
@@ -155,9 +185,7 @@ impl KernelCuda {
         let stream = &self.stream;
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
-        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
-        bar.set_message("Computing kernel g_method_xdu_halfstep");
-        bar.set_prefix("G_method Cxdu nomass");
+        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu_nomass", "G_method Cxdu nomass", self.kernel.len() as u64);
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
@@ -186,7 +214,7 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
-            bar.inc(1);
+            bar.increment();
         }
         bar.finish();
         Ok(())
@@ -197,9 +225,7 @@ impl KernelCuda {
         let stream = &self.stream;
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
-        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
-        bar.set_message("Computing kernel g_method_xdu_halfstep");
-        bar.set_prefix("G_method Cxdu Halfstep");
+        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu", "G_method Cxdu", self.kernel.len() as u64);
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
@@ -229,8 +255,9 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
-            bar.inc(1);
+            bar.increment();
         }
+        bar.finish();
         Ok(())
     }
 
@@ -240,9 +267,7 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
         let vv_corr_plus_next_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV_PLUS_NEXT)?;
-        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
-        bar.set_message("Computing kernel g_method_xdu_halfstep");
-        bar.set_prefix("G_method Cxdu Halfstep");
+        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu_halfstep", "G_method Cxdu halfstep", self.kernel.len() as u64);
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             // We have to keep in mind that len belongs to the lenght of vv_corr_rev, which is
@@ -276,7 +301,7 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
-            bar.inc(1);
+            bar.increment();
         }
         bar.finish();
         Ok(())
@@ -288,9 +313,7 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let vdu_corr = get_device_pointer(&mut self.corrs, VDU_CORR)?;
         let vdu_corr_cumsum = get_device_pointer(&mut self.corrs, VDU_CORR_CUMSUM)?;
-        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
-        bar.set_message("Computing kernel g_method_vdu");
-        bar.set_prefix("G_method Vdu");
+        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_vdu", "G_method Cvdu", self.kernel.len() as u64);
         for i in 1..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
@@ -321,7 +344,7 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
-            bar.inc(1);
+            bar.increment();
         }
         bar.finish();
         Ok(())
@@ -333,9 +356,7 @@ impl KernelCuda {
         let va_corr_rev = get_device_pointer(&mut self.corrs, VA_CORR_REV)?;
         let aa_corr = get_device_pointer(&mut self.corrs, AA_CORR)?;
         let adu_corr = get_device_pointer(&mut self.corrs, ADU_CORR)?;
-        let bar = indicatif::ProgressBar::new(self.kernel.len() as u64 - 1);
-        bar.set_message("Computing kernel gamma_method");
-        bar.set_prefix("Gamma_method");
+        let mut bar = Pbar::new(self.verbose, "Computing kernel gamma_method", "Gamma_method", self.kernel.len() as u64);
         for i in 0..self.kernel.len() {
             // compute the convolution via dot of cublas
             if i > 0 {
@@ -369,7 +390,7 @@ impl KernelCuda {
                 )?;
                 into_pyresult(stream.synchronize())?;
             }
-            bar.inc(1);
+            bar.increment();
         }
         bar.finish();
         Ok(())

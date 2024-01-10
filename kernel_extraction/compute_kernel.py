@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Iterable, Optional
 import tqdm
 import numpy as np
+
 # pylint: disable=import-error
 from .kernel_extraction import (
     g_method_vdu,
@@ -14,14 +15,14 @@ from .kernel_extraction import (
 
 
 def check_mass(mass: Optional[float]) -> float:
-    """ Check that mass is not None and return it."""
+    """Check that mass is not None and return it."""
     if mass is None:
         raise ValueError("Method requires mass but it is None")
     return mass
 
 
 def get_corr(corrs: dict[str, np.ndarray], key: str, idx_bin: int) -> np.ndarray:
-    """ Get correlation from dict. If idx_bin is not None, extract that bin"""
+    """Get correlation from dict. If idx_bin is not None, extract that bin"""
     if key not in corrs:
         raise ValueError(f"Method requires correlation: {key}, not in corrs")
     if idx_bin is None:
@@ -43,8 +44,8 @@ def get_nbins(corrs: dict[str, np.ndarray], warn_if_more: int = 1000) -> int:
 
 
 def get_trunc(trunc, corrs):
-    """ Choose trunc to be the length given or the length of the shortest
-    correlation. Does not check which correlations are actually used. """
+    """Choose trunc to be the length given or the length of the shortest
+    correlation. Does not check which correlations are actually used."""
     for key, item in corrs.items():
         if "corr" in key:
             trunc = min(trunc, len(item))
@@ -81,9 +82,10 @@ def compute_kernel(
     trunc: int = sys.maxsize,
     idx_bin: int = None,
     device: str = "cpu",
+    verbose: bool = True,
     **kwargs,
 ) -> np.ndarray:
-    """ Compute the kernel from correlations using Volterra equations.
+    """Compute the kernel from correlations using Volterra equations.
     Arguments:
         extraction_method: Enum for the extraction method
         dt (float): Time step
@@ -92,6 +94,7 @@ def compute_kernel(
         idx_bin (int): If 2d correlations and idx_bin is not None, extract kernel for that bin
             using corr[:, idx_bin], else use corr[:], default None
         device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        verbose (bool): Show progress bar, default True
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes) or (ntimes, nbins), when idx_bin
     Returns:
@@ -106,6 +109,7 @@ def compute_kernel(
             check_mass(mass),
             trunc,
             device,
+            verbose,
         )
     if extraction_method == ExtractionMethod.G_METHOD_XDU_NOMASS:
         return g_method_xdu_nomass(
@@ -114,6 +118,7 @@ def compute_kernel(
             dt,
             trunc,
             device,
+            verbose,
         )
     if extraction_method == ExtractionMethod.G_METHOD_XDU_HALFSTEP:
         return g_method_xdu_halfstep(
@@ -123,6 +128,7 @@ def compute_kernel(
             check_mass(mass),
             trunc,
             device,
+            verbose,
         )
     if extraction_method == ExtractionMethod.G_METHOD_VDU:
         return g_method_vdu(
@@ -132,6 +138,7 @@ def compute_kernel(
             check_mass(mass),
             trunc,
             device,
+            verbose,
         )
     if extraction_method == ExtractionMethod.GAMMA_METHOD:
         return gamma_method(
@@ -143,6 +150,7 @@ def compute_kernel(
             check_mass(mass),
             trunc,
             device,
+            verbose,
         )
     raise ValueError(f"Unknown extraction method: {extraction_method}")
 
@@ -155,9 +163,10 @@ def compute_kernel_2d(
     trunc: int = sys.maxsize,
     device: str = "cpu",
     verbose=True,
+    verbose_single_bin=False,
     **kwargs,
 ) -> np.ndarray:
-    """ Compute the kernel for a 2d system from conditional correlations.
+    """Compute the kernel for a 2d system from conditional correlations.
     Arguments:
         extraction_method: Enum for the extraction method
         dt (float): Time step
@@ -166,6 +175,7 @@ def compute_kernel_2d(
         trunc (int): Truncation length of the kernel, default len(corrs)
         device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
         verbose (bool): Show progress bar, default True
+        verbose_single_bin (bool): Show and additional progress bar for each bin, default False
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes, nbins)
     Returns:
@@ -195,7 +205,14 @@ def compute_kernel_2d(
         # Since we rescale kernel and potential by mass, we need to set mass to one
         # during extraction and then rescale after the extraction
         kernel[:, idxb] = m * compute_kernel(
-            extraction_method, dt, mass=1.0, trunc=trunc, idx_bin=idxb, device=device, **corrs
+            extraction_method,
+            dt,
+            mass=1.0,
+            trunc=trunc,
+            idx_bin=idxb,
+            device=device,
+            verbose=verbose_single_bin,
+            **corrs
         )
         pbar.update(1)
     return kernel
