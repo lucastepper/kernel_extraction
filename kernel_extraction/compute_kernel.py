@@ -83,6 +83,7 @@ def compute_kernel(
     idx_bin: int = None,
     device: str = "cpu",
     verbose: bool = True,
+    kernel: Optional[np.ndarray] = None,
     **kwargs,
 ) -> np.ndarray:
     """Compute the kernel from correlations using Volterra equations.
@@ -97,6 +98,8 @@ def compute_kernel(
         verbose (bool): Show progress bar, default True
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes) or (ntimes, nbins), when idx_bin
+        kernel (np.ndarray(trunc)): Kernel (or kernel_int) to extend, computes the rest of the
+            elements between len(kernel) and trunc, default None (compute from scratch)
     Returns:
         kernel (np.ndarray(trunc)): The kernel
     """
@@ -110,6 +113,7 @@ def compute_kernel(
             trunc,
             device,
             verbose,
+            kernel,
         )
     if extraction_method == ExtractionMethod.G_METHOD_XDU_NOMASS:
         return g_method_xdu_nomass(
@@ -119,6 +123,7 @@ def compute_kernel(
             trunc,
             device,
             verbose,
+            kernel,
         )
     if extraction_method == ExtractionMethod.G_METHOD_XDU_HALFSTEP:
         return g_method_xdu_halfstep(
@@ -129,6 +134,7 @@ def compute_kernel(
             trunc,
             device,
             verbose,
+            kernel,
         )
     if extraction_method == ExtractionMethod.G_METHOD_VDU:
         return g_method_vdu(
@@ -139,6 +145,7 @@ def compute_kernel(
             trunc,
             device,
             verbose,
+            kernel,
         )
     if extraction_method == ExtractionMethod.GAMMA_METHOD:
         return gamma_method(
@@ -151,6 +158,7 @@ def compute_kernel(
             trunc,
             device,
             verbose,
+            kernel,
         )
     raise ValueError(f"Unknown extraction method: {extraction_method}")
 
@@ -164,6 +172,7 @@ def compute_kernel_2d(
     device: str = "cpu",
     verbose=True,
     verbose_single_bin=False,
+    kernel: Optional[np.ndarray] = None,
     **kwargs,
 ) -> np.ndarray:
     """Compute the kernel for a 2d system from conditional correlations.
@@ -178,6 +187,8 @@ def compute_kernel_2d(
         verbose_single_bin (bool): Show and additional progress bar for each bin, default False
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes, nbins)
+        kernel (np.ndarray(trunc, nbins)): Kernel (or kernel_int) to extend, computes the rest of
+            the elements between len(kernel) and trunc, default None (compute from scratch)
     Returns:
         kernel (np.ndarray(trunc, nbins)): The kernel
     """
@@ -199,7 +210,16 @@ def compute_kernel_2d(
         corrs[key] = item
     trunc = get_trunc(trunc, corrs)
     nbins = get_nbins(corrs)
-    kernel = np.zeros((trunc, nbins))
+    # check if we need to extend the kernel
+    if kernel is None:
+        kernel = np.zeros((trunc, nbins))
+        len_kernel_to_extend = 0
+    elif kernel.shape[0] < trunc:
+        return kernel
+    else:
+        len_kernel_to_extend = len(kernel)
+        kernel = np.concatenate((kernel, np.zeros((trunc - len(kernel), nbins))), axis=0)
+    # compute the kernel for each bin
     pbar = tqdm.tqdm(desc=f"{extraction_method}", disable=not verbose, total=len(mass), leave=False)
     for idxb, m in enumerate(mass):
         # Since we rescale kernel and potential by mass, we need to set mass to one
@@ -212,7 +232,8 @@ def compute_kernel_2d(
             idx_bin=idxb,
             device=device,
             verbose=verbose_single_bin,
-            **corrs
+            **corrs,
+            kernel=kernel[:len_kernel_to_extend, idxb],
         )
         pbar.update(1)
     return kernel

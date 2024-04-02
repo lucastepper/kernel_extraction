@@ -3,4 +3,3 @@ kernel_extraction/kernel_extraction.cpython*
 *pycache*
 *.pdf
 test/timings
-test/data

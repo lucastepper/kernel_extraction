@@ -216,13 +216,27 @@ def test_kernel(method, device):
     # check that kernel_extraction.method function works directly
     kernel_i_test_1 = get_test_corr(**compute_ker_args, device=device)
     extraction_method = kernel_extraction.ExtractionMethod(method)
+    compute_ker_args["kernel"] = None
     # check that kernel_extraction.compute_kernel works given method
     kernel_i_test_2 = kernel_extraction.compute_kernel(
+        extraction_method, **compute_ker_args, device=device
+    )
+    compute_ker_args["kernel"] = kernel_i_test_2[:len(kernel_i_ref) // 2]
+    # check that extending give the same result
+    kernel_i_test_3 = kernel_extraction.compute_kernel(
+        extraction_method, **compute_ker_args, device=device
+    )
+    # check that we actually use the input kernel
+    compute_ker_args["kernel"] = np.zeros_like(kernel_i_ref)
+    kernel_i_test_wrong = kernel_extraction.compute_kernel(
         extraction_method, **compute_ker_args, device=device
     )
     # Saved the data in singles, reduce rtol
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test_1, rtol=5e-5)
     np.testing.assert_allclose(kernel_i_ref, kernel_i_test_2, rtol=5e-5)
+    np.testing.assert_allclose(kernel_i_ref, kernel_i_test_3, rtol=5e-5)
+    if np.allclose(kernel_i_ref, kernel_i_test_wrong, rtol=5e-5):
+        raise AssertionError(f"We did not extend the input kernel for {method=} and {device=}.")
     # run tests with simulated data
     # check if we passed --runslow to pytest
     if os.environ.get("RUNSLOW") == "true":

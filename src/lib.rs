@@ -44,10 +44,33 @@ pub fn dot_prod_par(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
     a.par_iter().zip(b.par_iter()).map(|(a, b)| a * b).sum()
 }
 
-
+// Check if the kernel is already long enough, if not, pad with zeros
+// Also return the start index for the kernel computation
+pub fn get_kernel_array_start(
+    kernel: Option<&PyArray1<f64>>,
+    trunc: usize,
+) -> (usize, Array1<f64>) {
+    match kernel {
+        Some(kernel) => {
+            let kernel = unsafe { kernel.as_array() };
+            if kernel.len() < trunc {
+                let mut kernel_new = Array1::zeros(trunc);
+                kernel_new.slice_mut(s![..kernel.len()]).assign(&kernel);
+                (kernel.len(), kernel_new)
+            } else {
+                (kernel.len(), kernel.to_owned())
+            }
+        }
+        // We never want to start at zero, as for g_method first element is always 0
+        // And for gamma_method, we need to compute the first element using a different formula
+        None => (1, Array1::zeros(trunc)),
+    }
+}
 
 #[pyfunction]
-#[pyo3(text_signature = "(vv_corr, xdu_corr, dt, trunc, device, verbose)")]
+#[pyo3(
+    text_signature = "(vv_corr, xdu_corr, dt, trunc, device, verbose, kernel_int: Optional[ndarray])"
+)]
 fn g_method_xdu_nomass<'py>(
     py: Python<'py>,
     vv_corr: &'py PyArray1<f64>,
@@ -56,6 +79,7 @@ fn g_method_xdu_nomass<'py>(
     trunc: usize,
     device: String,
     verbose: bool,
+    kernel_int: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
@@ -68,9 +92,15 @@ fn g_method_xdu_nomass<'py>(
     let mut convolution: f64;
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
-            let mut bar = kernel_cuda::Pbar::new(verbose, "Computing kernel g_method_xdu_nomass", "G_method Cxdu nomass", trunc as u64);
-            let mut kernel_int = Array1::zeros(trunc);
-            for i in 1..trunc {
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let mut bar = kernel_cuda::Pbar::new(
+                verbose,
+                "Computing kernel g_method_xdu_nomass",
+                "G_method Cxdu nomass",
+                trunc,
+                start,
+            );
+            for i in start..trunc {
                 convolution = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
@@ -91,7 +121,8 @@ fn g_method_xdu_nomass<'py>(
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
-            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, None, trunc, verbose)?;
+            let mut kernel_cuda =
+                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, None, trunc, verbose)?;
             kernel_cuda.g_method_xdu_nomass()?;
             kernel_cuda.get_kernel()?
         }
@@ -102,7 +133,9 @@ fn g_method_xdu_nomass<'py>(
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(vv_corr, xdu_corr, dt, mass, trunc, device, verbose)")]
+#[pyo3(
+    text_signature = "(vv_corr, xdu_corr, dt, mass, trunc, device, verbose, kernel_int: Optional[ndarray])"
+)]
 fn g_method_xdu<'py>(
     py: Python<'py>,
     vv_corr: &'py PyArray1<f64>,
@@ -112,6 +145,7 @@ fn g_method_xdu<'py>(
     trunc: usize,
     device: String,
     verbose: bool,
+    kernel_int: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
@@ -123,10 +157,16 @@ fn g_method_xdu<'py>(
     let len = vv_corr_rev.shape()[0];
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
-            let mut bar = kernel_cuda::Pbar::new(verbose, "Computing kernel g_method_xdu", "G_method Cxdu", trunc as u64);
-            let mut kernel_int = Array1::zeros(trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let mut bar = kernel_cuda::Pbar::new(
+                verbose,
+                "Computing kernel g_method_xdu",
+                "G_method Cxdu",
+                trunc,
+                start,
+            );
             let prefac = 2.0 / (dt * vv_corr_rev[len - 1]);
-            for i in 1..trunc {
+            for i in start..trunc {
                 let conv = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
@@ -145,7 +185,8 @@ fn g_method_xdu<'py>(
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
-            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc, verbose)?;
+            let mut kernel_cuda =
+                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
             kernel_cuda.g_method_xdu()?;
             kernel_cuda.get_kernel()?
         }
@@ -156,7 +197,9 @@ fn g_method_xdu<'py>(
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(vv_corr, xdu_corr, dt, mass, trunc, device, verbose)")]
+#[pyo3(
+    text_signature = "(vv_corr, xdu_corr, dt, mass, trunc, device, verbose, kernel_int: Optional[ndarray])"
+)]
 fn g_method_xdu_halfstep<'py>(
     py: Python<'py>,
     vv_corr: &'py PyArray1<f64>,
@@ -166,6 +209,7 @@ fn g_method_xdu_halfstep<'py>(
     trunc: usize,
     device: String,
     verbose: bool,
+    kernel_int: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
     println!(
         "WARNING: I think g_method_xdu_halfstep still has an error in the derivation, something
@@ -185,11 +229,17 @@ fn g_method_xdu_halfstep<'py>(
     let len = vv_corr_plus_next_rev.shape()[0];
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
-            let mut bar = kernel_cuda::Pbar::new(verbose, "Computing kernel g_method_xdu_halfstep", "G_method Cxdu halfstep", trunc as u64);
-            let mut kernel_int = Array1::zeros(trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let mut bar = kernel_cuda::Pbar::new(
+                verbose,
+                "Computing kernel g_method_xdu_halfstep",
+                "G_method Cxdu halfstep",
+                trunc,
+                start,
+            );
             let prefac = 1.0 / (vv_corr[0] + vv_corr[1]);
             let prefac_vv_corr = 2.0 / dt;
-            for i in 1..trunc {
+            for i in start..trunc {
                 kernel_int[i] =
                     prefac_vv_corr * (mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]);
                 let conv = dot_prod_par(
@@ -213,7 +263,8 @@ fn g_method_xdu_halfstep<'py>(
                 ),
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
-            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc, verbose)?;
+            let mut kernel_cuda =
+                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
             kernel_cuda.g_method_xdu_halfstep()?;
             kernel_cuda.get_kernel()?
         }
@@ -224,7 +275,9 @@ fn g_method_xdu_halfstep<'py>(
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(vv_corr, vdu_corr, dt, mass, trunc, device, verbose)")]
+#[pyo3(
+    text_signature = "(vv_corr, vdu_corr, dt, mass, trunc, device, verbose, kernel_int: Optional[ndarray])"
+)]
 fn g_method_vdu<'py>(
     py: Python<'py>,
     vv_corr: &'py PyArray1<f64>,
@@ -234,6 +287,7 @@ fn g_method_vdu<'py>(
     trunc: usize,
     device: String,
     verbose: bool,
+    kernel_int: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
@@ -252,10 +306,16 @@ fn g_method_vdu<'py>(
     // do actual computation
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
-            let mut bar = kernel_cuda::Pbar::new(verbose, "Computing kernel g_method_vdu", "G_method Cvdu", trunc as u64);
-            let mut kernel_int = Array1::zeros(trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let mut bar = kernel_cuda::Pbar::new(
+                verbose,
+                "Computing kernel g_method_vdu",
+                "G_method Cvdu",
+                trunc,
+                start,
+            );
             let prefac = 1.0 / vv_corr[0];
-            for i in 1..trunc {
+            for i in start..trunc {
                 let conv = dot_prod_par(
                     kernel_int.slice(s![1..i]),
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
@@ -276,7 +336,8 @@ fn g_method_vdu<'py>(
                 (kernel_cuda::VDU_CORR, vdu_corr.view()),
                 (kernel_cuda::VDU_CORR_CUMSUM, vdu_corr_cumsum.view()),
             ]);
-            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc, verbose)?;
+            let mut kernel_cuda =
+                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
             kernel_cuda.g_method_vdu()?;
             kernel_cuda.get_kernel()?
         }
@@ -287,7 +348,9 @@ fn g_method_vdu<'py>(
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc, device, verbose)")]
+#[pyo3(
+    text_signature = "(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc, device, verbose, kernel: Optional[ndarray])"
+)]
 fn gamma_method<'py>(
     py: Python<'py>,
     vv_corr: &'py PyArray1<f64>,
@@ -299,6 +362,7 @@ fn gamma_method<'py>(
     trunc: usize,
     device: String,
     verbose: bool,
+    kernel: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
     // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
@@ -317,13 +381,19 @@ fn gamma_method<'py>(
     // to streamline the computation of all terms for the trapezodial rule
     // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
     // where we set the first element to zero
-    let kernel_int = match Device::from_str(&device)? {
+    let kernel = match Device::from_str(&device)? {
         Device::Cpu => {
-            let mut bar = kernel_cuda::Pbar::new(verbose, "Computing kernel gamma_method", "Gamma_method", trunc as u64);
-            let mut kernel = Array1::zeros(trunc);
+            let (start, mut kernel) = get_kernel_array_start(kernel, trunc);
+            let mut bar = kernel_cuda::Pbar::new(
+                verbose,
+                "Computing kernel gamma_method",
+                "Gamma_method",
+                trunc,
+                start,
+            );
             let prefac = 1.0 / (vv_corr[0] + va_corr[0] * dt * 0.5);
             kernel[0] = (mass * aa_corr[0] + adu_corr[0]) / vv_corr[0];
-            for i in 1..trunc {
+            for i in start..trunc {
                 let conv = dot_prod_par(
                     kernel.slice(s![1..i]),
                     va_corr_rev.slice(s![(len - i)..(len - 1)]),
@@ -344,7 +414,8 @@ fn gamma_method<'py>(
                 (kernel_cuda::AA_CORR, aa_corr),
                 (kernel_cuda::ADU_CORR, adu_corr),
             ]);
-            let mut kernel_cuda = kernel_cuda::KernelCuda::new(corrs, dt, Some(mass), trunc, verbose)?;
+            let mut kernel_cuda =
+                kernel_cuda::KernelCuda::new(corrs, kernel, dt, Some(mass), trunc, verbose)?;
             kernel_cuda.set_vv_corr_0(vv_corr[0]);
             kernel_cuda.gamma_method()?;
             kernel_cuda.get_kernel()?
@@ -352,7 +423,7 @@ fn gamma_method<'py>(
         #[cfg(not(feature = "cuda"))]
         Device::Cuda => return Device::raise_cuda_error(),
     };
-    Ok(kernel_int.into_pyarray(py))
+    Ok(kernel.into_pyarray(py))
 }
 
 #[pymodule]

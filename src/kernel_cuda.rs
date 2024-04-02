@@ -3,6 +3,7 @@ use cublas;
 use cublas_sys;
 use indicatif;
 use ndarray::{Array1, ArrayView1};
+use numpy::PyArray1;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::PyResult;
 use rustacuda::memory::DeviceBox;
@@ -11,6 +12,8 @@ use rustacuda_core::DevicePointer;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Display;
+
+use crate::get_kernel_array_start;
 // define all corrs to use as keys in a hashmap
 pub const VV_CORR_REV: &str = "vv_corr_rev";
 pub const VV_CORR_REV_PLUS_NEXT: &str = "vv_corr_plus_next_rev";
@@ -46,17 +49,24 @@ pub struct Pbar {
     bar: Option<indicatif::ProgressBar>,
 }
 impl Pbar {
-    pub fn new(verbose: bool, message: &'static str, prefix: &'static str, mut len_ker: u64) -> Self {
+    pub fn new(
+        verbose: bool,
+        message: &'static str,
+        prefix: &'static str,
+        mut len_ker: usize,
+        start_val: usize,
+    ) -> Self {
         if verbose == false {
             return Pbar { bar: None };
         }
         if len_ker > 1 {
             len_ker -= 1;
         };
-        let bar = indicatif::ProgressBar::new(len_ker);
+        let bar = indicatif::ProgressBar::new(len_ker as u64);
+        bar.inc(start_val as u64);
         bar.set_message(message);
         bar.set_prefix(prefix);
-        Pbar { bar: Some(bar), }
+        Pbar { bar: Some(bar) }
     }
     pub fn increment(&mut self) {
         if let Some(bar) = &self.bar {
@@ -72,6 +82,7 @@ impl Pbar {
 pub struct KernelCuda {
     kernel: DeviceBuffer<f64>,
     corrs: HashMap<&'static str, DeviceBuffer<f64>>,
+    start: usize,
     dt: f64,
     verbose: bool,
     mass: Option<f64>,
@@ -101,8 +112,9 @@ impl KernelCuda {
 
     // This is the full constructor, which needs to set all fields, expecting some to be None
     // All kernel extraction methods get their own function to decide which fields to set
-    pub fn new(
+    pub fn new<'py>(
         corrs: HashMap<&'static str, ArrayView1<f64>>,
+        kernel_to_extend: Option<&'py PyArray1<f64>>,
         dt: f64,
         mass: Option<f64>,
         trunc: usize,
@@ -130,10 +142,19 @@ impl KernelCuda {
             .into_iter()
             .map(|(k, v)| Ok((k, KernelCuda::arr_to_gpu(v, k)?)))
             .collect::<PyResult<HashMap<&'static str, DeviceBuffer<f64>>>>()?;
+        let (start, kernel) = get_kernel_array_start(kernel_to_extend, trunc);
+        let kernel_slice = match kernel.as_slice() {
+            Some(s) => s,
+            None => {
+                // We should never really get here, unless somebody sets trunc to 0
+                return Err(PyValueError::new_err("kernel_to_extend is empty"));
+            }
+        };
         // initialize output
         Ok(KernelCuda {
-            kernel: into_pyresult(DeviceBuffer::from_slice(&vec![0.; trunc]))?,
+            kernel: into_pyresult(DeviceBuffer::from_slice(kernel_slice))?,
             corrs,
+            start,
             dot: into_pyresult(DeviceBox::new(&0.0))?,
             dt,
             verbose,
@@ -185,8 +206,14 @@ impl KernelCuda {
         let stream = &self.stream;
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
-        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu_nomass", "G_method Cxdu nomass", self.kernel.len() as u64);
-        for i in 1..self.kernel.len() {
+        let mut bar = Pbar::new(
+            self.verbose,
+            "Computing kernel g_method_xdu_nomass",
+            "G_method Cxdu nomass",
+            self.kernel.len(),
+            self.start,
+        );
+        for i in self.start..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
                 cublas_sys::cublasDdot_v2(
@@ -225,8 +252,14 @@ impl KernelCuda {
         let stream = &self.stream;
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
-        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu", "G_method Cxdu", self.kernel.len() as u64);
-        for i in 1..self.kernel.len() {
+        let mut bar = Pbar::new(
+            self.verbose,
+            "Computing kernel g_method_xdu",
+            "G_method Cxdu",
+            self.kernel.len(),
+            self.start,
+        );
+        for i in self.start..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
                 cublas_sys::cublasDdot_v2(
@@ -267,8 +300,14 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let xdu_corr = get_device_pointer(&mut self.corrs, XDU_CORR)?;
         let vv_corr_plus_next_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV_PLUS_NEXT)?;
-        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_xdu_halfstep", "G_method Cxdu halfstep", self.kernel.len() as u64);
-        for i in 1..self.kernel.len() {
+        let mut bar = Pbar::new(
+            self.verbose,
+            "Computing kernel g_method_xdu_halfstep",
+            "G_method Cxdu halfstep",
+            self.kernel.len(),
+            self.start,
+        );
+        for i in self.start..self.kernel.len() {
             // compute the convolution via dot of cublas
             // We have to keep in mind that len belongs to the lenght of vv_corr_rev, which is
             // one element longer than the the array containing cvv[::-1][1:] + cvv[::-1][:-1]
@@ -313,8 +352,14 @@ impl KernelCuda {
         let vv_corr_rev = get_device_pointer(&mut self.corrs, VV_CORR_REV)?;
         let vdu_corr = get_device_pointer(&mut self.corrs, VDU_CORR)?;
         let vdu_corr_cumsum = get_device_pointer(&mut self.corrs, VDU_CORR_CUMSUM)?;
-        let mut bar = Pbar::new(self.verbose, "Computing kernel g_method_vdu", "G_method Cvdu", self.kernel.len() as u64);
-        for i in 1..self.kernel.len() {
+        let mut bar = Pbar::new(
+            self.verbose,
+            "Computing kernel g_method_vdu",
+            "G_method Cvdu",
+            self.kernel.len(),
+            self.start,
+        );
+        for i in self.start..self.kernel.len() {
             // compute the convolution via dot of cublas
             unsafe {
                 cublas_sys::cublasDdot_v2(
@@ -356,8 +401,18 @@ impl KernelCuda {
         let va_corr_rev = get_device_pointer(&mut self.corrs, VA_CORR_REV)?;
         let aa_corr = get_device_pointer(&mut self.corrs, AA_CORR)?;
         let adu_corr = get_device_pointer(&mut self.corrs, ADU_CORR)?;
-        let mut bar = Pbar::new(self.verbose, "Computing kernel gamma_method", "Gamma_method", self.kernel.len() as u64);
-        for i in 0..self.kernel.len() {
+        // Here we use the 0th loop iteration to compute the kernel at time 0
+        // So in the case that start is 1 (which happens if we start kernel from scratch)
+        // We set start to 0 and compute the kernel at time 0
+        let start = if self.start == 1 { 0 } else { self.start };
+        let mut bar = Pbar::new(
+            self.verbose,
+            "Computing kernel gamma_method",
+            "Gamma_method",
+            self.kernel.len(),
+            start,
+        );
+        for i in start..self.kernel.len() {
             // compute the convolution via dot of cublas
             if i > 0 {
                 unsafe {
