@@ -66,6 +66,41 @@ pub fn get_kernel_array_start(
         None => (1, Array1::zeros(trunc)),
     }
 }
+pub struct Pbar {
+    bar: Option<indicatif::ProgressBar>,
+}
+
+impl Pbar {
+    pub fn new(
+        verbose: bool,
+        message: &'static str,
+        prefix: &'static str,
+        mut len_ker: usize,
+        start_val: usize,
+    ) -> Self {
+        if verbose == false {
+            return Pbar { bar: None };
+        }
+        if len_ker > 1 {
+            len_ker -= 1;
+        };
+        let bar = indicatif::ProgressBar::new(len_ker as u64);
+        bar.inc(start_val as u64);
+        bar.set_message(message);
+        bar.set_prefix(prefix);
+        Pbar { bar: Some(bar) }
+    }
+    pub fn increment(&mut self) {
+        if let Some(bar) = &self.bar {
+            bar.inc(1);
+        }
+    }
+    pub fn finish(&mut self) {
+        if let Some(bar) = &self.bar {
+            bar.finish();
+        }
+    }
+}
 
 #[pyfunction]
 #[pyo3(
@@ -93,7 +128,7 @@ fn g_method_xdu_nomass<'py>(
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
-            let mut bar = kernel_cuda::Pbar::new(
+            let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu_nomass",
                 "G_method Cxdu nomass",
@@ -158,7 +193,7 @@ fn g_method_xdu<'py>(
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
-            let mut bar = kernel_cuda::Pbar::new(
+            let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu",
                 "G_method Cxdu",
@@ -230,7 +265,7 @@ fn g_method_xdu_halfstep<'py>(
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
-            let mut bar = kernel_cuda::Pbar::new(
+            let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu_halfstep",
                 "G_method Cxdu halfstep",
@@ -307,7 +342,7 @@ fn g_method_vdu<'py>(
     let kernel_int = match Device::from_str(&device)? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
-            let mut bar = kernel_cuda::Pbar::new(
+            let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_vdu",
                 "G_method Cvdu",
@@ -384,7 +419,7 @@ fn gamma_method<'py>(
     let kernel = match Device::from_str(&device)? {
         Device::Cpu => {
             let (start, mut kernel) = get_kernel_array_start(kernel, trunc);
-            let mut bar = kernel_cuda::Pbar::new(
+            let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel gamma_method",
                 "Gamma_method",

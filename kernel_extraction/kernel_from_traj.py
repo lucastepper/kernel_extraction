@@ -1,8 +1,8 @@
 import sys
-from typing import Optional
+from typing import Optional, Union
 from dataclasses import dataclass
 import numpy as np
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from .compute_kernel import ExtractionMethod, compute_kernel
 
 # from kernel_extraction import ExtractionMethod, compute_kernel
@@ -53,11 +53,11 @@ class Result:
     @property
     def kernel_int(self) -> np.ndarray:
         """Return the kernel_int, either from self._kernelInt or
-        cumtrapz(self._kernel_int)"""
+        cumulative_trapezoid(self._kernel_int)"""
         if self._kernel_int is not None:
             return self._kernel_int
         if self._kernel is not None:
-            return cumtrapz(self._kernel, dx=self.dt, initial=0.0)
+            return cumulative_trapezoid(self._kernel, dx=self.dt, initial=0.0)
         raise ValueError("No kernel found")
 
     @classmethod
@@ -78,7 +78,7 @@ class Result:
 
 
 def kernel_from_traj(
-    trajs: np.ndarray,
+    trajs: Union[np.ndarray, list],
     extraction_method: ExtractionMethod,
     dt: float,
     kbt: float,
@@ -106,15 +106,15 @@ def kernel_from_traj(
             and some other useful quantities
     """
     check_imports()
-    if trajs.ndim == 1:
-        trajs = trajs.reshape(1, -1)
-    if trajs.ndim != 2:
-        raise ValueError(f"Trajsectory must be 1d or 2d, got shape: {trajs.shape=}")
-    if trunc > trajs.shape[1]:
-        trunc = trajs.shape[1] - 2
+    if isinstance(trajs, np.ndarray):
+        len_trajs = trajs.shape[-1]
+    else:
+        len_trajs = min(len(trj) for trj in trajs)
+    trunc = max(trunc, len_trajs - 2)
     # find out which correlation functions to compute
     corr_objs = {"vv_corr": correlation.VVCorr(dt=dt, trunc=trunc)}
     fe = md_utils.get_fe(trajs, kbt=kbt, bins=bins)
+    fe = md_utils.clean_fe(fe, verbose=False)
     # define gradient functions for later, when computing the same number of gradients for both
     # arguments of the correlation function, can use grad with dt step, else need 2d gradient
     get_vel_2dt = lambda x: np.gradient(x, dt)

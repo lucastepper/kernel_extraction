@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Display;
 
-use crate::get_kernel_array_start;
+use crate::{get_kernel_array_start, Pbar};
 // define all corrs to use as keys in a hashmap
 pub const VV_CORR_REV: &str = "vv_corr_rev";
 pub const VV_CORR_REV_PLUS_NEXT: &str = "vv_corr_plus_next_rev";
@@ -43,40 +43,6 @@ fn get_device_pointer<T>(
             "Correlation function {} not found",
             name
         ))),
-    }
-}
-pub struct Pbar {
-    bar: Option<indicatif::ProgressBar>,
-}
-impl Pbar {
-    pub fn new(
-        verbose: bool,
-        message: &'static str,
-        prefix: &'static str,
-        mut len_ker: usize,
-        start_val: usize,
-    ) -> Self {
-        if verbose == false {
-            return Pbar { bar: None };
-        }
-        if len_ker > 1 {
-            len_ker -= 1;
-        };
-        let bar = indicatif::ProgressBar::new(len_ker as u64);
-        bar.inc(start_val as u64);
-        bar.set_message(message);
-        bar.set_prefix(prefix);
-        Pbar { bar: Some(bar) }
-    }
-    pub fn increment(&mut self) {
-        if let Some(bar) = &self.bar {
-            bar.inc(1);
-        }
-    }
-    pub fn finish(&mut self) {
-        if let Some(bar) = &self.bar {
-            bar.finish();
-        }
     }
 }
 pub struct KernelCuda {

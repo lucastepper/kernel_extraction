@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Iterable
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 import plot_utils
 from .ref_kernels import RefKernel
 
@@ -22,7 +22,7 @@ class Kernel:
     @classmethod
     def from_kernel(cls, kernel, dt, ref_kernel=None):
         """Compute the running integral from the kernel."""
-        kernel_int = cumtrapz(kernel, dx=dt, initial=0)
+        kernel_int = cumulative_trapezoid(kernel, dx=dt, initial=0)
         return cls(dt, kernel, kernel_int, ref_kernel)
 
     @classmethod
@@ -141,7 +141,7 @@ class Kernel2D:
         if not self._kernel_integral is None:
             return self._kernel_integral
         if not self._kernel is None:
-            kernel_int = cumtrapz(self._kernel, dx=self.dt, axis=0, initial=0.0)
+            kernel_int = cumulative_trapezoid(self._kernel, dx=self.dt, axis=0, initial=0.0)
             if self.cache:
                 self._kernel_integral = kernel_int
             return kernel_int
@@ -294,7 +294,7 @@ class Kernel2D:
     ):
         """Compute the kernel avearged over space, weighted by self.fe, and plot it vs time."""
         if kernel_ref is not None and kernel_int_ref is None:
-            kernel_int_ref = cumtrapz(kernel_ref, dx=self.dt, axis=0, initial=0.0)
+            kernel_int_ref = cumulative_trapezoid(kernel_ref, dx=self.dt, axis=0, initial=0.0)
         if kernel_int_ref is not None and kernel_ref is None:
             kernel_ref = np.gradient(kernel_int_ref, self.dt)
         if axes is None:
