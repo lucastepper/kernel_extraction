@@ -7,7 +7,7 @@ from .kernel_extraction import (
     gamma_method,
 )
 from .kernel import Kernel, Kernel2D
-from .compute_kernel import ExtractionMethod, compute_kernel, compute_kernel_2d
+from .compute_kernel import ExtractionMethod, compute_kernel, compute_kernel_2d, get_dueff
 from .fit_kernel import FitKernel
 from .ref_kernels import (
     RefKernel,
@@ -37,4 +37,5 @@ __all__ = [
     "gamma_method",
     "Result",
     "kernel_from_traj",
+    "get_dueff",
 ]

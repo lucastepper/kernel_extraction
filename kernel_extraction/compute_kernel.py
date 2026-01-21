@@ -3,8 +3,7 @@ from enum import Enum
 from typing import Iterable, Optional
 import tqdm
 import numpy as np
-
-# pylint: disable=import-error
+import md_utils
 from .kernel_extraction import (
     g_method_vdu,
     g_method_xdu,
@@ -51,6 +50,35 @@ def get_trunc(trunc, corrs):
             trunc = min(trunc, len(item))
             return trunc
     raise ValueError("No correlation found in corrs, when looking for trunc")
+
+
+def get_dueff(trajs, kbt, dt, intervals=None, cond_mass=None, fe=None, vels=None):
+    """ Compute the effective potenital given by:
+        U_eff(x, v) = U_pmf(x) + m(x)/2 v^2 + kbt log(sqrt(m(x))).
+    """
+    trajs = md_utils.to_list_ndarrays(trajs)
+    if vels is not None:
+        vels = md_utils.to_list_ndarrays(vels)
+    if cond_mass is None:
+        assert intervals is not None
+        cond_mass = md_utils.get_conditional_mass(trajs, dt, kbt, intervals)
+    values = 0.5 * (intervals[1:] + intervals[:-1])
+    if fe is None:
+        fe = md_utils.get_fe(trajs)
+        fe = md_utils.clean_fe(fe, verbose=False)
+    grad_fe = np.gradient(fe[1], fe[1])
+    dueffs = []
+    for x in trajs:
+        if vels is None:
+            v = np.gradient(x, dt)
+        dueffs.append(
+            np.interp(x, fe[0], grad_fe)
+            + 0.5 * np.interp(x, values, cond_mass) * v ** 2
+            + kbt * np.interp(x, values, np.log(np.sqrt(cond_mass)))
+        )
+    if len(dueffs) == 1:
+        dueffs = dueffs[0]
+    return dueffs
 
 
 class ExtractionMethod(Enum):
