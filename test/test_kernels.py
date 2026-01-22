@@ -97,7 +97,7 @@ def g_method_vdu(vv_corr, vdu_corr, dt, mass, trunc, verbose=False):
     vdu_corr_cumsum = np.cumsum(np.concatenate([[0.0], vdu_corr[1:trunc]]))
     prefac = 1 / vv_corr[0]
     for i in range(1, len(kernel_int)):
-        kernel_int[i] = vdu_corr[0] + vdu_corr[i] + (2 * mass / dt) * (vv_corr[0] - vv_corr[i])
+        kernel_int[i] = -vdu_corr[0] - vdu_corr[i] + (2 * mass / dt) * (vv_corr[0] - vv_corr[i])
         conv = 0.0
         for j in range(1, i):
             # conv += kernel_int[j] * vv_corr[i - j] + vdu_corr[j]

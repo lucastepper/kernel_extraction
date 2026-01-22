@@ -356,7 +356,9 @@ fn g_method_vdu<'py>(
                     vv_corr_rev.slice(s![(len - i)..(len - 1)]),
                 );
                 kernel_int[i] = prefac
-                    * (2. * mass / dt * (vv_corr[0] - vv_corr[i]) + vdu_corr[0] + vdu_corr[i]
+                    * (2. * mass / dt * (vv_corr[0] - vv_corr[i])
+                        - vdu_corr[0]
+                        - vdu_corr[i]
                         - 2. * conv
                         - 2. * vdu_corr_cumsum[i - 1]);
                 bar.increment();

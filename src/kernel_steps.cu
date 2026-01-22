@@ -39,7 +39,7 @@ __global__ void kernel_step_g_method_vdu_double(
     ) {
         kernel_i[i] = 1.0 / vv_corr_rev[len - 1] * (
             + 2.0 * mass / dt * (vv_corr_rev[len - 1] - vv_corr_rev[len - 1 - i])
-            + vdu_corr[0] + vdu_corr[i]
+            - vdu_corr[0] - vdu_corr[i]
             - 2.0 * vdu_corr_cumsum[i - 1]
             - 2.0 * conv[0]
         );
