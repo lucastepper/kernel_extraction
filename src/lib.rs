@@ -49,6 +49,7 @@ pub fn dot_prod_par(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
 pub fn get_kernel_array_start(
     kernel: Option<&PyArray1<f64>>,
     trunc: usize,
+    first_sample: usize,
 ) -> (usize, Array1<f64>) {
     match kernel {
         Some(kernel) => {
@@ -56,14 +57,12 @@ pub fn get_kernel_array_start(
             if kernel.len() < trunc {
                 let mut kernel_new = Array1::zeros(trunc);
                 kernel_new.slice_mut(s![..kernel.len()]).assign(&kernel);
-                (kernel.len().max(1), kernel_new)
+                (kernel.len().max(first_sample), kernel_new)
             } else {
                 (kernel.len(), kernel.to_owned())
             }
         }
-        // We never want to start at zero, as for g_method first element is always 0
-        // And for gamma_method, we need to compute the first element using a different formula
-        None => (1, Array1::zeros(trunc)),
+        None => (first_sample, Array1::zeros(trunc)),
     }
 }
 pub struct Pbar {
@@ -127,7 +126,7 @@ fn g_method_xdu_nomass<'py>(
     let mut convolution: f64;
     let kernel_int = match Device::resolve(&device, "g_method_xdu_nomass")? {
         Device::Cpu => {
-            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc, 1);
             let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu_nomass",
@@ -157,7 +156,7 @@ fn g_method_xdu_nomass<'py>(
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, 1, verbose)?;
             kernel_cuda.g_method_xdu_nomass()?;
             kernel_cuda.get_kernel()?
         }
@@ -190,7 +189,7 @@ fn g_method_xdu<'py>(
     let len = vv_corr_rev.shape()[0];
     let kernel_int = match Device::resolve(&device, "g_method_xdu")? {
         Device::Cpu => {
-            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc, 1);
             let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu",
@@ -219,7 +218,7 @@ fn g_method_xdu<'py>(
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, 1, verbose)?;
             kernel_cuda.g_method_xdu(mass, false)?;
             kernel_cuda.get_kernel()?
         }
@@ -242,25 +241,22 @@ fn g_method_xdu_halfstep<'py>(
     verbose: bool,
     kernel_int: Option<&'py PyArray1<f64>>,
 ) -> PyResult<&'py PyArray1<f64>> {
-    println!(
-        "WARNING: I think g_method_xdu_halfstep still has an error in the derivation, something
-        with a 0.5 missing for one of the trapezodial boundaries or something like that.
-        Use this function at your own risk."
-    );
-    // flipping vv_corr once and compution convolution as dot prod is faster
     let vv_corr = unsafe { vv_corr.as_array() };
-    let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().map(|x| *x));
-    // check that corrs are long enough or lower trunc
-    let trunc = (vv_corr.len() - 1).min(xdu_corr.len() - 1).min(trunc);
-    // for the cpu version of the half step, we needan array containting the
-    // sum of reversed(vv_corr[i] and vv_corr[i + i]) for the convolution
-    let vv_corr_plus_next_rev = &vv_corr_rev.slice(s![1..]) + &vv_corr_rev.slice(s![..-1]);
     let xdu_corr = unsafe { xdu_corr.as_array() };
-    // do actual computation
-    let len = vv_corr_plus_next_rev.shape()[0];
-    let kernel_int = match Device::resolve(&device, "g_method_xdu_halfstep")? {
+    let trunc = vv_corr
+        .len()
+        .min(xdu_corr.len())
+        .saturating_sub(1)
+        .min(trunc);
+    let device = Device::resolve(&device, "g_method_xdu_halfstep")?;
+    if trunc == 0 {
+        let (_, kernel_int) = get_kernel_array_start(kernel_int, trunc, 0);
+        return Ok(kernel_int.into_pyarray(py));
+    }
+
+    let kernel_int = match device {
         Device::Cpu => {
-            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc, 0);
             let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_xdu_halfstep",
@@ -271,14 +267,13 @@ fn g_method_xdu_halfstep<'py>(
             let prefac = 1.0 / (vv_corr[0] + vv_corr[1]);
             let prefac_vv_corr = 2.0 / dt;
             for i in start..trunc {
-                kernel_int[i] =
-                    prefac_vv_corr * (mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]);
-                let conv = dot_prod_par(
-                    kernel_int.slice(s![1..i]),
-                    vv_corr_plus_next_rev.slice(s![(len - i)..(len - 1)]),
-                );
-                kernel_int[i] -= conv;
-                kernel_int[i] *= prefac;
+                let driving_term = prefac_vv_corr
+                    * (mass * (vv_corr[0] - vv_corr[i + 1]) + xdu_corr[i + 1] - xdu_corr[0]);
+                let mut conv = 0.0;
+                for j in 1..=i {
+                    conv += kernel_int[i - j] * (vv_corr[j] + vv_corr[j + 1]);
+                }
+                kernel_int[i] = (driving_term - conv) * prefac;
                 bar.increment();
             }
             bar.finish();
@@ -286,16 +281,18 @@ fn g_method_xdu_halfstep<'py>(
         }
         #[cfg(feature = "cuda")]
         Device::Cuda(backend) => {
+            let vv_corr_rev = Array1::from_iter(vv_corr.iter().rev().copied());
+            let vv_corr_plus_next_rev = &vv_corr_rev.slice(s![1..]) + &vv_corr_rev.slice(s![..-1]);
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (
                     kernel_cuda::VV_CORR_REV_PLUS_NEXT,
                     vv_corr_plus_next_rev.view(),
                 ),
-                (kernel_cuda::XDU_CORR, xdu_corr.view()),
+                (kernel_cuda::XDU_CORR, xdu_corr),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, 0, verbose)?;
             kernel_cuda.g_method_xdu(mass, true)?;
             kernel_cuda.get_kernel()?
         }
@@ -335,7 +332,7 @@ fn g_method_vdu<'py>(
     // do actual computation
     let kernel_int = match Device::resolve(&device, "g_method_vdu")? {
         Device::Cpu => {
-            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
+            let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc, 1);
             let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel g_method_vdu",
@@ -368,7 +365,7 @@ fn g_method_vdu<'py>(
                 (kernel_cuda::VDU_CORR_CUMSUM, vdu_corr_cumsum.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, 1, verbose)?;
             kernel_cuda.g_method_vdu(mass)?;
             kernel_cuda.get_kernel()?
         }
@@ -417,7 +414,7 @@ fn gamma_method<'py>(
     // where we set the first element to zero
     let kernel = match Device::resolve(&device, "gamma_method")? {
         Device::Cpu => {
-            let (start, mut kernel) = get_kernel_array_start(kernel, trunc);
+            let (start, mut kernel) = get_kernel_array_start(kernel, trunc, 1);
             let mut bar = Pbar::new(
                 verbose,
                 "Computing kernel gamma_method",
@@ -451,7 +448,7 @@ fn gamma_method<'py>(
                 (kernel_cuda::ADU_CORR, adu_corr),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(backend, corrs, kernel, dt, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel, dt, trunc, 1, verbose)?;
             kernel_cuda.gamma_method(vv_corr[0], mass)?;
             kernel_cuda.get_kernel()?
         }

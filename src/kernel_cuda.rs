@@ -102,22 +102,25 @@ impl CudaBackend {
         corr: &CudaSlice<f64>,
         dot: &mut CudaSlice<f64>,
         i: usize,
+        first_sample: usize,
     ) -> PyResult<()> {
-        if i < 2 {
+        if i <= first_sample {
             // The sum is empty and dot still contains its initial zero.
             return Ok(());
         }
-        let kernel = kernel.slice(1..i);
-        let corr = corr.slice((corr.len() - i)..(corr.len() - 1));
+        let count = i - first_sample;
+        let corr_end = corr.len() - 1;
+        let kernel = kernel.slice(first_sample..i);
+        let corr = corr.slice((corr_end - count)..corr_end);
         let (kernel_ptr, _kernel_sync) = kernel.device_ptr(&self.stream);
         let (corr_ptr, _corr_sync) = corr.device_ptr(&self.stream);
         let (dot_ptr, _dot_sync) = dot.device_ptr_mut(&self.stream);
-        // Both input views contain i - 1 elements. cuBLAS writes one f64 to dot,
+        // Both input views contain count elements. cuBLAS writes one f64 to dot,
         // using the same stream as the kernel step that consumes it.
         unsafe {
             blas_sys::cublasDdot_v2(
                 *self.blas.handle(),
-                (i - 1) as i32,
+                count as i32,
                 kernel_ptr as *const f64,
                 1,
                 corr_ptr as *const f64,
@@ -136,6 +139,7 @@ pub struct KernelCuda {
     dot: CudaSlice<f64>,
     backend: CudaBackend,
     start: usize,
+    first_sample: usize,
     trunc: usize,
     len_data: i32,
     dt: f64,
@@ -149,6 +153,7 @@ impl KernelCuda {
         kernel_to_extend: Option<&PyArray1<f64>>,
         dt: f64,
         trunc: usize,
+        first_sample: usize,
         verbose: bool,
     ) -> PyResult<Self> {
         let len_data = corrs
@@ -163,7 +168,7 @@ impl KernelCuda {
             .into_iter()
             .map(|(name, corr)| Ok((name, copy_to_device(stream, corr)?)))
             .collect::<PyResult<_>>()?;
-        let (start, kernel) = get_kernel_array_start(kernel_to_extend, trunc);
+        let (start, kernel) = get_kernel_array_start(kernel_to_extend, trunc, first_sample);
         let kernel = copy_to_device(stream, kernel.view())?;
         let dot = stream.alloc_zeros(1).map_err(cuda_error)?;
         Ok(Self {
@@ -172,6 +177,7 @@ impl KernelCuda {
             corrs,
             dot,
             start,
+            first_sample,
             trunc,
             len_data,
             dt,
@@ -190,8 +196,13 @@ impl KernelCuda {
             self.start,
         );
         for i in self.start..self.trunc {
-            self.backend
-                .convolution(&self.kernel, vv_corr_rev, &mut self.dot, i)?;
+            self.backend.convolution(
+                &self.kernel,
+                vv_corr_rev,
+                &mut self.dot,
+                i,
+                self.first_sample,
+            )?;
             let index = i as i32;
             let mut launch = self.backend.stream.launch_builder(&self.backend.step);
             launch
@@ -228,8 +239,13 @@ impl KernelCuda {
         };
         let mut bar = Pbar::new(self.verbose, message, prefix, self.trunc, self.start);
         for i in self.start..self.trunc {
-            self.backend
-                .convolution(&self.kernel, dot_corr, &mut self.dot, i)?;
+            self.backend.convolution(
+                &self.kernel,
+                dot_corr,
+                &mut self.dot,
+                i,
+                self.first_sample,
+            )?;
             let index = i as i32;
             let mut launch = self.backend.stream.launch_builder(&self.backend.step);
             launch
@@ -261,8 +277,13 @@ impl KernelCuda {
             self.start,
         );
         for i in self.start..self.trunc {
-            self.backend
-                .convolution(&self.kernel, vv_corr_rev, &mut self.dot, i)?;
+            self.backend.convolution(
+                &self.kernel,
+                vv_corr_rev,
+                &mut self.dot,
+                i,
+                self.first_sample,
+            )?;
             let index = i as i32;
             let mut launch = self.backend.stream.launch_builder(&self.backend.step);
             launch
@@ -296,8 +317,13 @@ impl KernelCuda {
         );
         // Like the CPU method, compute step zero even when extending a kernel.
         for i in (0..self.kernel.len().min(1)).chain(self.start..self.trunc) {
-            self.backend
-                .convolution(&self.kernel, va_corr_rev, &mut self.dot, i)?;
+            self.backend.convolution(
+                &self.kernel,
+                va_corr_rev,
+                &mut self.dot,
+                i,
+                self.first_sample,
+            )?;
             let index = i as i32;
             let mut launch = self.backend.stream.launch_builder(&self.backend.step);
             launch

@@ -64,28 +64,27 @@ def g_method_xdu_nomass(vv_corr, xdu_corr, dt, trunc, verbose=False):
         )
     return kernel_i
 
-
 def g_method_xdu_halfstep(vv_corr, xdu_corr, dt, mass, trunc, loop=True, verbose=False):
     """Gmethod with external potential, evaluating kernel at half steps."""
-    trunc = np.min([len(vv_corr) - 1, len(xdu_corr) - 1, trunc])
+    trunc = min(len(vv_corr) - 1, len(xdu_corr) - 1, trunc)
     kernel_i = np.zeros(trunc)
     prefac = 1.0 / (vv_corr[0] + vv_corr[1])
     prefac_vv_corr = 2.0 / dt
     for i in range(len(kernel_i)):
         kernel_i[i] = prefac_vv_corr * (
-            mass * (vv_corr[0] - vv_corr[i]) + xdu_corr[i] - xdu_corr[0]
+            mass * (vv_corr[0] - vv_corr[i + 1])
+            + xdu_corr[i + 1] - xdu_corr[0]
         )
         if loop:
             conv = 0.0
-            for j in range(1, i):
-                conv += kernel_i[i - j] * (vv_corr[j] + vv_corr[j + 1])
+            for j in range(1, i + 1):
+                conv += kernel_i[i - j] * (
+                    vv_corr[j] + vv_corr[j + 1]
+                )
         else:
             conv = np.sum(
-                kernel_i[:i]
-                * (
-                    vv_corr[::-1][len(vv_corr) - i - 1 : -1]
-                    + vv_corr[::-1][len(vv_corr) - i - 2 : -2]
-                )
+                kernel_i[:i][::-1]
+                * (vv_corr[1:i + 1] + vv_corr[2:i + 2])
             )
         kernel_i[i] -= conv
         kernel_i[i] *= prefac
