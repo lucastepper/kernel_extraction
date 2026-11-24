@@ -1,11 +1,12 @@
 import os
+from functools import lru_cache
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pytest
 import utils
 import kernel_extraction
 
-SKIPCUDA = os.environ.get("SKIPCUDA", default="") == "true"
 CORRS_ARGS = {
     "g_method_xdu": ("vv_corr", "xdu_corr", "dt", "mass", "trunc"),
     "g_method_xdu_nomass": ("vv_corr", "xdu_corr", "dt", "trunc"),
@@ -13,6 +14,22 @@ CORRS_ARGS = {
     "g_method_vdu": ("vv_corr", "vdu_corr", "dt", "mass", "trunc"),
     "gamma_method": ("vv_corr", "va_corr", "aa_corr", "adu_corr", "dt", "mass", "trunc"),
 }
+
+
+@lru_cache(maxsize=1)
+def cuda_skip_reason():
+    if os.environ.get("SKIPCUDA") == "true":
+        return "CUDA tests disabled by SKIPCUDA"
+
+    # A one-sample output initializes the CUDA backend without launching an extraction step.
+    corr = np.ones(1, dtype=np.float64)
+    try:
+        kernel_extraction.g_method_xdu_nomass(
+            corr, corr, dt=1.0, trunc=1, device="cuda", verbose=False
+        )
+    except RuntimeError as error:
+        return f"CUDA unavailable ({error})"
+    return None
 
 
 def g_method_xdu(vv_corr, xdu_corr, dt, mass, trunc, loop=True, verbose=False):
@@ -114,20 +131,20 @@ def gamma_method(vv_corr, va_corr, aa_corr, adu_corr, dt, mass, trunc, verbose=F
     Arguments:
         vv_corr (np.ndarray): velocity autocorrelation function
         va_corr (np.ndarray): velocity acceleration correlation function
-        aa_corr (np.ndarray): acceleration autocorrelation function (af_corr = mass * caa)
+        aa_corr (np.ndarray): acceleration autocorrelation function
         adu_corr (np.ndarray): acceleration gradient of PMF correlation function
         dt (float): time step
         mass (float): mass
         trunc (int): number of frames of G(t) to compute
         verbose (bool): argument not used, I just added it for consistency with the module to test
     """
-    af_corr = mass * aa_corr
-    trunc = np.min([len(vv_corr), len(va_corr), len(af_corr), len(adu_corr), trunc])
+    aa_corr_times_mass = mass * aa_corr
+    trunc = np.min([len(vv_corr), len(va_corr), len(aa_corr), len(adu_corr), trunc])
     kernel = np.zeros(trunc)
     prefac = 1.0 / (vv_corr[0] + va_corr[0] * dt * 0.5)
-    kernel[0] = (af_corr[0] + adu_corr[0]) / vv_corr[0]
+    kernel[0] = (aa_corr_times_mass[0] + adu_corr[0]) / vv_corr[0]
     for i in range(1, trunc):
-        num = af_corr[i] + adu_corr[i]
+        num = aa_corr_times_mass[i] + adu_corr[i]
         # do first instance of loop where j = 0 and we scale
         # with 0.5 due to trapezoidal rule
         num -= 0.5 * dt * va_corr[i] * kernel[0]
@@ -202,8 +219,10 @@ def run_tests_slow(device, test_data, extraction_method):
 )
 def test_kernel(method, device):
     """Test extraction method versus reference implementation, loading correlations."""
-    if device == "cuda" and SKIPCUDA:
-        pytest.skip("Skipping CUDA test")
+    if device == "cuda":
+        reason = cuda_skip_reason()
+        if reason is not None:
+            pytest.skip(reason)
     test_data = utils.load_test_data()
     # test that the length of the correlation functions is taken into account
     trunc = 2 * len(test_data.vv_corr)
@@ -241,3 +260,15 @@ def test_kernel(method, device):
     # check if we passed --runslow to pytest
     if os.environ.get("RUNSLOW") == "true":
         run_tests_slow(device, test_data, extraction_method)
+
+
+@pytest.mark.parametrize("method", CORRS_ARGS)
+def test_auto_device_matches_cpu(method):
+    test_data = utils.load_test_data()
+    args = {arg: getattr(test_data, arg) for arg in CORRS_ARGS[method]}
+    args["trunc"] = 10
+    args["verbose"] = False
+    extraction_method = kernel_extraction.ExtractionMethod(method)
+    expected = kernel_extraction.compute_kernel(extraction_method, **args, device="cpu")
+    actual = kernel_extraction.compute_kernel(extraction_method, **args, device="auto")
+    np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-12)

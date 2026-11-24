@@ -3,7 +3,6 @@ from typing import Optional, Iterable
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumulative_trapezoid
-import plot_utils
 from .ref_kernels import RefKernel
 
 
@@ -48,6 +47,8 @@ class Kernel:
         if nsamples is None:
             conv_func = lambda x: (time, x)
         else:
+            import plot_utils
+
             conv_func = lambda x: plot_utils.subsample_logspace(x, n=nsamples, dt=self.dt)
         time_ker, kernel = conv_func(self.kernel[:end])
         time_ker_int, kernel_int = conv_func(self.kernel_int[:end])
@@ -226,6 +227,8 @@ class Kernel2D:
     def get_conv_func(self, nsamples_logspace: Optional[int] = None):
         """Get a function that subsamples the kernel in logspace."""
         if nsamples_logspace is not None:
+            import plot_utils
+
             return lambda t, x: plot_utils.subsample_logspace(
                 x, dt=self.dt, n=nsamples_logspace, time=t
             )
@@ -239,6 +242,8 @@ class Kernel2D:
         nsamples_logspace: Optional[int] = None,
     ):
         """Plot kernel vs time at given bins."""
+        import plot_utils
+
         if axes is None:
             _fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         if bins is None:
@@ -265,6 +270,8 @@ class Kernel2D:
 
     def plot_vs_pos(self, tcorrs=None, axes=None, cm="viridis_r"):
         """Plot kernel vs position at given time points."""
+        import plot_utils
+
         if axes is None:
             _fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         if tcorrs is None:

@@ -1,6 +1,3 @@
-#[macro_use]
-#[cfg(feature = "cuda")]
-extern crate rustacuda;
 #[cfg(feature = "cuda")]
 mod kernel_cuda;
 use ndarray::{s, Array1, ArrayView1};
@@ -13,27 +10,30 @@ use std::collections::HashMap;
 
 enum Device {
     Cpu,
-    Cuda,
+    #[cfg(feature = "cuda")]
+    Cuda(kernel_cuda::CudaBackend),
 }
-impl Device {
-    fn from_str(s: &str) -> PyResult<Self> {
-        match s.to_lowercase().as_str() {
-            "cpu" => Ok(Device::Cpu),
-            "cuda" => Ok(Device::Cuda),
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "Device: {} not supported",
-                    s
-                )))
-            }
-        }
-    }
 
-    #[cfg(not(feature = "cuda"))]
-    fn raise_cuda_error<'py>() -> PyResult<&'py PyArray1<f64>> {
-        return Err(PyValueError::new_err(
-            "Cuda not supported, please compile with feature cuda",
-        ));
+impl Device {
+    fn resolve(device: &str, _method: &str) -> PyResult<Self> {
+        match device.to_ascii_lowercase().as_str() {
+            "cpu" => Ok(Self::Cpu),
+            #[cfg(feature = "cuda")]
+            "cuda" => kernel_cuda::CudaBackend::new(_method).map(Self::Cuda),
+            #[cfg(feature = "cuda")]
+            "auto" => Ok(kernel_cuda::CudaBackend::new(_method)
+                .map(Self::Cuda)
+                .unwrap_or(Self::Cpu)),
+            #[cfg(not(feature = "cuda"))]
+            "auto" => Ok(Self::Cpu),
+            #[cfg(not(feature = "cuda"))]
+            "cuda" => Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "CUDA support was disabled when building this extension",
+            )),
+            _ => Err(PyValueError::new_err(format!(
+                "Invalid device {device:?}. Expected 'cpu', 'cuda', or 'auto'."
+            ))),
+        }
     }
 }
 
@@ -56,7 +56,7 @@ pub fn get_kernel_array_start(
             if kernel.len() < trunc {
                 let mut kernel_new = Array1::zeros(trunc);
                 kernel_new.slice_mut(s![..kernel.len()]).assign(&kernel);
-                (kernel.len(), kernel_new)
+                (kernel.len().max(1), kernel_new)
             } else {
                 (kernel.len(), kernel.to_owned())
             }
@@ -125,7 +125,7 @@ fn g_method_xdu_nomass<'py>(
     // do actual computation
     let len = vv_corr_rev.shape()[0];
     let mut convolution: f64;
-    let kernel_int = match Device::from_str(&device)? {
+    let kernel_int = match Device::resolve(&device, "g_method_xdu_nomass")? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
             let mut bar = Pbar::new(
@@ -151,18 +151,16 @@ fn g_method_xdu_nomass<'py>(
             kernel_int
         }
         #[cfg(feature = "cuda")]
-        Device::Cuda => {
+        Device::Cuda(backend) => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, None, trunc, verbose)?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
             kernel_cuda.g_method_xdu_nomass()?;
             kernel_cuda.get_kernel()?
         }
-        #[cfg(not(feature = "cuda"))]
-        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -190,7 +188,7 @@ fn g_method_xdu<'py>(
     let trunc = vv_corr.len().min(xdu_corr.len()).min(trunc);
     // do actual computation
     let len = vv_corr_rev.shape()[0];
-    let kernel_int = match Device::from_str(&device)? {
+    let kernel_int = match Device::resolve(&device, "g_method_xdu")? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
             let mut bar = Pbar::new(
@@ -215,18 +213,16 @@ fn g_method_xdu<'py>(
         }
 
         #[cfg(feature = "cuda")]
-        Device::Cuda => {
+        Device::Cuda(backend) => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
-            kernel_cuda.g_method_xdu()?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+            kernel_cuda.g_method_xdu(mass, false)?;
             kernel_cuda.get_kernel()?
         }
-        #[cfg(not(feature = "cuda"))]
-        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -262,7 +258,7 @@ fn g_method_xdu_halfstep<'py>(
     let xdu_corr = unsafe { xdu_corr.as_array() };
     // do actual computation
     let len = vv_corr_plus_next_rev.shape()[0];
-    let kernel_int = match Device::from_str(&device)? {
+    let kernel_int = match Device::resolve(&device, "g_method_xdu_halfstep")? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
             let mut bar = Pbar::new(
@@ -289,7 +285,7 @@ fn g_method_xdu_halfstep<'py>(
             kernel_int
         }
         #[cfg(feature = "cuda")]
-        Device::Cuda => {
+        Device::Cuda(backend) => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (
@@ -299,12 +295,10 @@ fn g_method_xdu_halfstep<'py>(
                 (kernel_cuda::XDU_CORR, xdu_corr.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
-            kernel_cuda.g_method_xdu_halfstep()?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+            kernel_cuda.g_method_xdu(mass, true)?;
             kernel_cuda.get_kernel()?
         }
-        #[cfg(not(feature = "cuda"))]
-        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -339,7 +333,7 @@ fn g_method_vdu<'py>(
         vdu_corr_cumsum[i] = vdu_corr_cumsum[i - 1] + vdu_corr[i];
     }
     // do actual computation
-    let kernel_int = match Device::from_str(&device)? {
+    let kernel_int = match Device::resolve(&device, "g_method_vdu")? {
         Device::Cpu => {
             let (start, mut kernel_int) = get_kernel_array_start(kernel_int, trunc);
             let mut bar = Pbar::new(
@@ -367,19 +361,17 @@ fn g_method_vdu<'py>(
             kernel_int
         }
         #[cfg(feature = "cuda")]
-        Device::Cuda => {
+        Device::Cuda(backend) => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VV_CORR_REV, vv_corr_rev.view()),
                 (kernel_cuda::VDU_CORR, vdu_corr.view()),
                 (kernel_cuda::VDU_CORR_CUMSUM, vdu_corr_cumsum.view()),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(corrs, kernel_int, dt, Some(mass), trunc, verbose)?;
-            kernel_cuda.g_method_vdu()?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel_int, dt, trunc, verbose)?;
+            kernel_cuda.g_method_vdu(mass)?;
             kernel_cuda.get_kernel()?
         }
-        #[cfg(not(feature = "cuda"))]
-        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel_int.into_pyarray(py))
 }
@@ -408,6 +400,11 @@ fn gamma_method<'py>(
     let aa_corr = unsafe { aa_corr.as_array() };
     let adu_corr = unsafe { adu_corr.as_array() };
     let len = va_corr_rev.shape()[0];
+    if vv_corr.is_empty() || va_corr.is_empty() || aa_corr.is_empty() || adu_corr.is_empty() {
+        return Err(PyValueError::new_err(
+            "Gamma method requires nonempty correlations",
+        ));
+    }
     // check that corrs are long enough or lower trunc
     let trunc = vv_corr
         .len()
@@ -418,7 +415,7 @@ fn gamma_method<'py>(
     // to streamline the computation of all terms for the trapezodial rule
     // of the integral over vdu_corr, we precompute the cum sum of vdu_corr
     // where we set the first element to zero
-    let kernel = match Device::from_str(&device)? {
+    let kernel = match Device::resolve(&device, "gamma_method")? {
         Device::Cpu => {
             let (start, mut kernel) = get_kernel_array_start(kernel, trunc);
             let mut bar = Pbar::new(
@@ -429,7 +426,9 @@ fn gamma_method<'py>(
                 start,
             );
             let prefac = 1.0 / (vv_corr[0] + va_corr[0] * dt * 0.5);
-            kernel[0] = (mass * aa_corr[0] + adu_corr[0]) / vv_corr[0];
+            if let Some(first) = kernel.first_mut() {
+                *first = (mass * aa_corr[0] + adu_corr[0]) / vv_corr[0];
+            }
             for i in start..trunc {
                 let conv = dot_prod_par(
                     kernel.slice(s![1..i]),
@@ -445,20 +444,17 @@ fn gamma_method<'py>(
             kernel
         }
         #[cfg(feature = "cuda")]
-        Device::Cuda => {
+        Device::Cuda(backend) => {
             let corrs = HashMap::from_iter(vec![
                 (kernel_cuda::VA_CORR_REV, va_corr_rev.view()),
                 (kernel_cuda::AA_CORR, aa_corr),
                 (kernel_cuda::ADU_CORR, adu_corr),
             ]);
             let mut kernel_cuda =
-                kernel_cuda::KernelCuda::new(corrs, kernel, dt, Some(mass), trunc, verbose)?;
-            kernel_cuda.set_vv_corr_0(vv_corr[0]);
-            kernel_cuda.gamma_method()?;
+                kernel_cuda::KernelCuda::new(backend, corrs, kernel, dt, trunc, verbose)?;
+            kernel_cuda.gamma_method(vv_corr[0], mass)?;
             kernel_cuda.get_kernel()?
         }
-        #[cfg(not(feature = "cuda"))]
-        Device::Cuda => return Device::raise_cuda_error(),
     };
     Ok(kernel.into_pyarray(py))
 }

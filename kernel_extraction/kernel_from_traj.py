@@ -98,7 +98,7 @@ def kernel_from_traj(
         mass (float): Mass, default None
             when mass is none, compute it from m = kbt / mean_vsqrd
         trunc (int): Truncation length of the kernel, default len(corrs)
-        device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        device (str): 'cpu' (default), 'cuda', or 'auto' to use CUDA if available
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes) or (ntimes, nbins), when idx_bin
     Returns:

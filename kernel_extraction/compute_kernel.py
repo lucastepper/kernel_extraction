@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Iterable, Optional
 import tqdm
 import numpy as np
-import md_utils
 from .kernel_extraction import (
     g_method_vdu,
     g_method_xdu,
@@ -56,6 +55,8 @@ def get_dueff(trajs, kbt, dt, intervals=None, cond_mass=None, fe=None, vels=None
     """ Compute the effective potenital given by:
         U_eff(x, v) = U_pmf(x) + m(x)/2 v^2 + kbt log(sqrt(m(x))).
     """
+    import md_utils
+
     trajs = md_utils.to_list_ndarrays(trajs)
     if vels is not None:
         vels = md_utils.to_list_ndarrays(vels)
@@ -122,7 +123,7 @@ def compute_kernel(
         trunc (int): Truncation length of the kernel, default len(corrs)
         idx_bin (int): If 2d correlations and idx_bin is not None, extract kernel for that bin
             using corr[:, idx_bin], else use corr[:], default None
-        device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        device (str): 'cpu' (default), 'cuda', or 'auto' to use CUDA if available
         verbose (bool): Show progress bar, default True
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
             The correlation functions must be of shape (ntimes) or (ntimes, nbins), when idx_bin
@@ -210,7 +211,7 @@ def compute_kernel_2d(
         mass (np.ndarray(nbins)): Mass as a function of the bin index
         kbt (float): Thermal energy, Needed to compute mass from vv_corr if mass is None
         trunc (int): Truncation length of the kernel, default len(corrs)
-        device (str): Device to use for computation, 'cpu' or 'cuda', default 'cpu'
+        device (str): 'cpu' (default), 'cuda', or 'auto' to use CUDA if available
         verbose (bool): Show progress bar, default True
         verbose_single_bin (bool): Show and additional progress bar for each bin, default False
         **kwargs: Correlation functions, must contain 'vv_corr', 'xdu_corr', 'aa_corr', etc.
