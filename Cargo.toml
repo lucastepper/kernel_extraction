@@ -1,6 +1,6 @@
 [package]
 name = "kernel_extraction"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Lucas Tepper <lucas.tepper.91@gmail.com>"]
 edition = "2021"
 

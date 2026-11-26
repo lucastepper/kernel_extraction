@@ -6,11 +6,17 @@ contributes to friction. The package solves discretized Volterra equations on
 a uniform time grid and returns either the memory kernel `Γ(t)` or its running
 integral `G(t)`, depending on the method.
 
-A derivation is in the [derivations folder](derivations/).
+A derivation is in the [derivations folder](derivations/) of the repository.
 
 ## Installation
 
-With a Rust toolchain and maturin installed, run this from the repository root.
+Install `kernel_extraction` from [PyPI](https://pypi.org/project/kernel-extraction/).
+
+```bash
+pip install kernel-extraction
+```
+
+To build from source, with a Rust toolchain and maturin installed, run this from the repository root.
 
 ```bash
 maturin build --release

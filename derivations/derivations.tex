@@ -1,0 +1,166 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=24mm]{geometry}
+\usepackage{amsmath}
+\usepackage{parskip}
+
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\method}[1]{\texttt{\detokenize{#1}}}
+
+\begin{document}
+
+\section*{Volterra equations for memory-kernel extraction}
+
+\subsection*{Generalized Langevin equation}
+
+For a coordinate $x(t)$ with velocity $v(t)=\dot{x}(t)$ and constant mass $m$,
+we write the generalized Langevin equation as
+\begin{equation}
+    m\dot v(t)=-D(t)-\int_0^t \Gamma(t-s)v(s)\dd s+F_{\mathrm R}(t),
+    \qquad D(t)=U'_{\mathrm{pmf}}(x(t)).
+    \label{eq:gle}
+\end{equation}
+Here $D$ is the gradient of the potential of mean force. Both $F_{\mathrm R}$
+and the memory term have units of force. If the GLE is written per unit mass
+with kernel $\gamma$, then $\Gamma=m\gamma$. Throughout, the running integral is
+$G(t)=\int_0^t\Gamma(s)\dd s$, so both $\Gamma$ and $G$ use the mass convention
+of Eq.~\eqref{eq:gle}.
+
+Write $C^{AB}(t)=\langle A(0)B(t)\rangle$ for stationary correlations and
+$a=\dot v$. In the package, $C^{vv}$, $C^{xD}$, $C^{vD}$, $C^{va}$, $C^{aa}$,
+and $C^{aD}$ correspond to \method{vv_corr}, \method{xdu_corr},
+\method{vdu_corr}, \method{va_corr}, \method{aa_corr}, and \method{adu_corr},
+respectively. If $\langle v(0)F_{\mathrm R}(t)\rangle=0$, multiplying
+Eq.~\eqref{eq:gle} by $v(0)$ and averaging gives
+\begin{equation}
+    m\frac{\mathrm{d}}{\mathrm{d}t}C^{vv}(t)
+    =-C^{vD}(t)-\int_0^t C^{vv}(s)\Gamma(t-s)\dd s.
+    \label{eq:velocity-volterra}
+\end{equation}
+
+\subsection*{Integrated kernel on the full-step grid}
+
+Integrating Eq.~\eqref{eq:velocity-volterra} and exchanging the order of
+integration in the memory term gives
+\begin{equation}
+    \int_0^t C^{vv}(s)G(t-s)\dd s
+    =m\bigl(C^{vv}(0)-C^{vv}(t)\bigr)-\int_0^t C^{vD}(s)\dd s.
+    \label{eq:integrated-vdu}
+\end{equation}
+Stationarity lets us write $C^{xD}(t)=\langle x(-t)D(0)\rangle$. Differentiating
+gives $\frac{\mathrm{d}}{\mathrm{d}t}C^{xD}(t)=-C^{vD}(t)$, which turns
+Eq.~\eqref{eq:integrated-vdu} into
+\begin{equation}
+    \int_0^t C^{vv}(s)G(t-s)\dd s
+    =m\bigl(C^{vv}(0)-C^{vv}(t)\bigr)+C^{xD}(t)-C^{xD}(0).
+    \label{eq:integrated-xdu}
+\end{equation}
+
+Let $f_i=f(i\Delta t)$. At lag $i\Delta t$, the trapezoidal rule gives the
+convolution as
+\[
+    \Delta t\left(\tfrac12 C^{vv}_0 G_i
+          +\sum_{j=1}^{i-1} C^{vv}_jG_{i-j}
+          +\tfrac12 C^{vv}_i G_0\right).
+\]
+With $G_0=0$, the method \method{g_method_xdu} (\method{G_METHOD_XDU})
+solves Eq.~\eqref{eq:integrated-xdu} for $G_i$ as
+\begin{equation}
+    G_i=\frac{2}{\Delta t\,C^{vv}_0}
+        \left[m(C^{vv}_0-C^{vv}_i)+C^{xD}_i-C^{xD}_0
+              -\Delta t\sum_{j=1}^{i-1} C^{vv}_jG_{i-j}\right],
+    \qquad i\geq 1.
+    \label{eq:g-xdu}
+\end{equation}
+
+If $\langle x(0)F_{\mathrm R}(0)\rangle=0$, multiplying the GLE at $t=0$
+by $x(0)$ and averaging gives $m C^{vv}_0=C^{xD}_0$, since stationarity
+implies $\langle x(0)a(0)\rangle=-C^{vv}_0$.
+
+The method \method{g_method_xdu_nomass} (\method{G_METHOD_XDU_NOMASS})
+uses this identity to eliminate $m$ from Eq.~\eqref{eq:g-xdu}, giving
+\begin{equation}
+    G_i=\frac{2}{\Delta t\,C^{vv}_0}
+        \left[C^{xD}_i-\frac{C^{xD}_0}{C^{vv}_0}C^{vv}_i
+              -\Delta t\sum_{j=1}^{i-1}C^{vv}_jG_{i-j}\right].
+    \label{eq:g-xdu-nomass}
+\end{equation}
+
+The method \method{g_method_vdu} (\method{G_METHOD_VDU}) applies the trapezoidal
+rule to both integrals in Eq.~\eqref{eq:integrated-vdu} and solves for
+\begin{equation}
+    \begin{aligned}
+    G_i=\frac{2}{\Delta t\,C^{vv}_0}\bigg[
+        &m(C^{vv}_0-C^{vv}_i)-\frac{\Delta t}{2}(C^{vD}_0+C^{vD}_i)\\
+        &-\Delta t\sum_{j=1}^{i-1}
+              \bigl(C^{vv}_jG_{i-j}+C^{vD}_j\bigr)\bigg].
+    \end{aligned}
+    \label{eq:g-vdu}
+\end{equation}
+
+\subsection*{Integrated kernel on the half-step grid}
+
+Evaluate Eq.~\eqref{eq:integrated-xdu} at $t=(i+1)\Delta t$. The midpoint rule
+and linear interpolation of the velocity correlation give
+\begin{align}
+    \int_0^{(i+1)\Delta t} C^{vv}(s)G((i+1)\Delta t-s)\dd s
+    &\approx \Delta t\sum_{j=0}^{i}C^{vv}_{j+1/2}G_{i-j+1/2},\
+    C^{vv}_{j+1/2}&\approx\tfrac12(C^{vv}_j+C^{vv}_{j+1}),
+\end{align}
+where $G_{i+1/2}=G((i+1/2)\Delta t)$. The method \method{g_method_xdu_halfstep}
+(\method{G_METHOD_XDU_HALFSTEP}) isolates the $j=0$ term to obtain
+\begin{equation}
+    \begin{aligned}
+    G_{i+1/2}=\frac{1}{C^{vv}_0+C^{vv}_1}\bigg[
+        &\frac{2}{\Delta t}
+            \bigl(m(C^{vv}_0-C^{vv}_{i+1})+C^{xD}_{i+1}-C^{xD}_0\bigr)\\
+        &-\sum_{j=1}^{i}(C^{vv}_j+C^{vv}_{j+1})G_{i-j+1/2}\bigg].
+    \end{aligned}
+    \label{eq:g-xdu-halfstep}
+\end{equation}
+The sum is empty at $i=0$, so the first returned sample is $G(\Delta t/2)$.
+Both midpoint quadrature and linear interpolation are second-order accurate
+for smooth functions.
+
+Substituting the zero-lag mass identity into the half-step recurrence gives
+\begin{equation}
+    \begin{aligned}
+    G_{i+1/2}=\frac{1}{C^{vv}_0+C^{vv}_1}\bigg[
+        &\frac{2}{\Delta t}
+            \left(C^{xD}_{i+1}-\frac{C^{xD}_0}{C^{vv}_0}C^{vv}_{i+1}\right)\\
+        &-\sum_{j=1}^{i}(C^{vv}_j+C^{vv}_{j+1})G_{i-j+1/2}\bigg].
+    \end{aligned}
+    \label{eq:g-xdu-halfstep-nomass}
+\end{equation}
+The package's half-step method takes $m$ explicitly as in
+Eq.~\eqref{eq:g-xdu-halfstep}.
+
+\subsection*{Direct extraction of the memory kernel}
+
+Differentiate Eq.~\eqref{eq:velocity-volterra} after writing the convolution
+as $\int_0^t\Gamma(s)C^{vv}(t-s)\dd s$. Since stationarity gives
+$\frac{\mathrm{d}}{\mathrm{d}t}C^{vD}=-C^{aD}$ and
+$\frac{\mathrm{d}^2}{\mathrm{d}t^2}C^{vv}=-C^{aa}$, and
+$\frac{\mathrm{d}}{\mathrm{d}t}C^{vv}=C^{va}$, the result is
+\begin{equation}
+    C^{vv}(0)\Gamma(t)+\int_0^t C^{va}(s)\Gamma(t-s)\dd s
+    =m C^{aa}(t)+C^{aD}(t).
+    \label{eq:gamma-volterra}
+\end{equation}
+The method \method{gamma_method} (\method{GAMMA_METHOD}) evaluates
+Eq.~\eqref{eq:gamma-volterra} at $t=0$ and uses the trapezoidal rule at
+subsequent lags, yielding
+\begin{align}
+    \Gamma_0 &= \frac{m C^{aa}_0+C^{aD}_0}{C^{vv}_0},\\
+    \Gamma_i &= \frac{m C^{aa}_i+C^{aD}_i
+                 -\frac{\Delta t}{2}C^{va}_i\Gamma_0
+                 -\Delta t\sum_{j=1}^{i-1}C^{va}_j\Gamma_{i-j}}
+                {C^{vv}_0+\frac{\Delta t}{2}C^{va}_0},
+    \qquad i\geq 1.
+    \label{eq:gamma-method}
+\end{align}
+
+Each recurrence evaluates a convolution over previously computed samples,
+so extracting $N$ samples takes $\mathcal{O}(N^2)$ arithmetic operations.
+
+\end{document}

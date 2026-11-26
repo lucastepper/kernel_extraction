@@ -11,3 +11,7 @@ classifiers = [
 ]
 requires-python = ">=3.7"
 dependencies = ["numpy", "scipy>=1.6", "matplotlib", "tqdm"]
+
+[project.urls]
+Repository = "https://github.com/lucastepper/kernel_extraction"
+Issues = "https://github.com/lucastepper/kernel_extraction/issues"
